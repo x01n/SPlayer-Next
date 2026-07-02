@@ -1,0 +1,13 @@
+{
+  "name": "x11-helper",
+  "main": "x11-helper.node",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "x11-helper",
+    "triples": {}
+  },
+  "scripts": {
+    "build": "napi build --release --no-const-enum",
+    "build:debug": "napi build --no-const-enum"
+  }
+}

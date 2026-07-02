@@ -2,6 +2,7 @@
 import { TransitionGroup } from "vue";
 import type { DesktopLyricSettings } from "@shared/types/settings";
 import LyricLine from "./components/LyricLine.vue";
+import SpectrumBackground from "./components/SpectrumBackground.vue";
 import {
   makePlaceholderLine,
   getLineTop,
@@ -24,9 +25,11 @@ const config = reactive<DesktopLyricSettings>({
   align: "center",
   wordByWord: true,
   autoGenerateWordByWord: true,
-  playedColor: "#ffffff",
-  unplayedColor: "#7d7d7d",
+  playedColor: "rgb(254, 121, 113)",
+  unplayedColor: "rgb(255, 255, 255)",
   strokeColor: "rgba(0, 0, 0, 0.5)",
+  backgroundColor: "rgba(0, 0, 0, 0)",
+  backgroundOpacity: 0,
   backgroundMask: false,
   backgroundMaskColor: "rgba(0, 0, 0, 0.3)",
   alwaysShowSongInfo: false,
@@ -34,7 +37,20 @@ const config = reactive<DesktopLyricSettings>({
   animation: true,
   alwaysOnTop: true,
   locked: false,
-  useCSSDrag: true,
+  useCSSDrag: false,
+  enableSpectrum: false,
+  spectrumColor: "rgba(255, 255, 255, 0.6)",
+  spectrumHeight: 60,
+  spectrumOpacity: 0.6,
+  spectrumRadius: 2,
+  immersiveMode: false,
+  immersiveBlur: 20,
+  immersiveDim: 0.5,
+  immersiveScale: 1.15,
+  lineSpacing: 8,
+  glowEffect: false,
+  glowColor: "rgba(255, 255, 255, 0.3)",
+  glowIntensity: 0.3,
 });
 
 const { track, lyric, playing, primaryIndex } = useNowPlayingSync({
@@ -140,8 +156,21 @@ const rootStyle = computed(() => ({
   "--dl-played": config.playedColor,
   "--dl-unplayed": config.unplayedColor,
   "--dl-stroke": config.strokeColor,
+  "--dl-bg": config.backgroundColor !== "rgba(0, 0, 0, 0)" ? config.backgroundColor : undefined,
+  "--dl-bg-hover": config.backgroundColor !== "rgba(0, 0, 0, 0)" ? config.backgroundColor : "rgba(0, 0, 0, 0.5)",
   "--dl-mask": config.backgroundMaskColor,
   "--dl-anim": config.animation ? "0.4s" : "0s",
+  "--dl-line-spacing": `${config.lineSpacing}px`,
+  "--dl-glow": config.glowEffect
+    ? `0 0 ${Math.round(8 + config.glowIntensity * 24)}px ${config.glowColor}, 0 0 ${Math.round(4 + config.glowIntensity * 12)}px ${config.glowColor}`
+    : "none",
+  "--dl-glow-text": config.glowEffect
+    ? `0 0 ${Math.round(4 + config.glowIntensity * 16)}px ${config.glowColor}, 0 0 ${Math.round(2 + config.glowIntensity * 8)}px ${config.glowColor}`
+    : "none",
+  "--dl-immersive-blur": `${config.immersiveBlur}px`,
+  "--dl-immersive-dim": `${config.immersiveDim}`,
+  "--dl-immersive-scale": `${config.immersiveScale}`,
+  "--dl-spectrum-radius": `${config.spectrumRadius}px`,
   fontFamily: config.fontFamily || undefined,
   "-webkit-app-region": !config.locked && config.useCSSDrag ? "drag" : "no-drag",
 }));
@@ -206,6 +235,14 @@ const onLockBtnLeave = (): void => {
   if (config.locked) window.api.desktopLyric.setMouseIgnore(true);
 };
 
+/** 窗口 resize 后重新布局 */
+const onWindowResize = (): void => {
+  // 触发 Vue 的响应式更新，重新计算所有布局
+  nextTick(() => {
+    // 如果当前有过渡动画，先暂停避免冲突
+  });
+};
+
 /** 配置变更订阅取消器 */
 let unsubConfig: (() => void) | null = null;
 
@@ -217,10 +254,12 @@ onMounted(async () => {
     console.error("[desktop-lyric] load config failed", error);
   }
   pushWindowHeight();
+  window.addEventListener("resize", onWindowResize);
   unsubConfig = window.api.desktopLyric.onConfigChange((next) => Object.assign(config, next));
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("resize", onWindowResize);
   unsubConfig?.();
   unsubConfig = null;
 });
@@ -229,10 +268,28 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="root"
-    :class="{ hovered: isHovered, locked: config.locked }"
+    :class="{
+      hovered: isHovered,
+      locked: config.locked,
+      immersive: config.immersiveMode,
+    }"
     :style="rootStyle"
     @pointerdown="onRootPointerDown"
   >
+    <!-- 沉浸模式背景遮罩 -->
+    <div v-if="config.immersiveMode" class="immersive-backdrop" />
+
+    <!-- 频谱背景 -->
+    <SpectrumBackground
+      v-if="config.enableSpectrum"
+      :enabled="config.enableSpectrum"
+      :color="config.spectrumColor"
+      :height="config.spectrumHeight"
+      :opacity="config.spectrumOpacity"
+      :radius="config.spectrumRadius"
+      :playing="playing"
+    />
+
     <div
       v-if="track && config.alwaysShowSongInfo"
       class="persistent-info"
@@ -311,6 +368,10 @@ onBeforeUnmount(() => {
       tag="div"
       name="dl-line"
       class="stage"
+      :class="{ 'has-spectrum': config.enableSpectrum, immersive: config.immersiveMode }"
+      :style="{
+        '--dl-spectrum-height': `${config.spectrumHeight}px`,
+      }"
     >
       <LyricLine
         v-for="(item, index) in displayItems"
@@ -322,9 +383,12 @@ onBeforeUnmount(() => {
         :word-by-word="resolveWordByWord(config, item)"
         :is-next="!!item.isNext"
         :background-mask="config.backgroundMask"
+        :glow-effect="config.glowEffect"
+        :glow-intensity="config.glowIntensity"
         :style="{
           '--dl-y': getLineTop(index, config.fontSize),
           '--dl-scale': item.isNext ? 0.8 : 1,
+          marginBottom: index < displayItems.length - 1 ? `${config.lineSpacing}px` : '0',
         }"
       />
     </component>
@@ -339,7 +403,7 @@ onBeforeUnmount(() => {
   color: var(--dl-played);
   box-sizing: border-box;
   border-radius: 12px;
-  background: transparent;
+  background: var(--dl-bg, transparent);
   cursor: move;
   transition: background-color 0.2s ease;
 }
@@ -347,7 +411,7 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 .root.hovered:not(.locked) {
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--dl-bg-hover, rgba(0, 0, 0, 0.5));
 }
 .header {
   flex: 0 0 56px;
@@ -517,6 +581,39 @@ onBeforeUnmount(() => {
   width: 100%;
   position: relative;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.stage.has-spectrum {
+  padding-bottom: var(--dl-spectrum-height, 60px);
+}
+.stage.immersive {
+  justify-content: center;
+}
+.immersive-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, calc(var(--dl-immersive-dim, 0.5) * 0.6)) 40%,
+    rgba(0, 0, 0, var(--dl-immersive-dim, 0.5)) 100%
+  );
+  backdrop-filter: blur(var(--dl-immersive-blur, 20px)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--dl-immersive-blur, 20px)) saturate(1.2);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.root.immersive .stage :deep(.dl-line-block) {
+  transform: translate3d(0, var(--dl-y, 0px), 0) scale(var(--dl-scale, 1))
+    scale(var(--dl-immersive-scale, 1.15));
+}
+.root.immersive .stage :deep(.dl-text) {
+  filter: drop-shadow(0 0 6px var(--dl-stroke, transparent))
+    drop-shadow(0 0 12px var(--dl-stroke, transparent));
 }
 .dl-line-enter-from {
   opacity: 0;

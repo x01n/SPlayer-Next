@@ -1079,6 +1079,58 @@
       "label": "使用 CSS 拖拽",
       "description": "使用 CSS -webkit-app-region 拖拽，在 Wayland 环境建议启用"
     },
+    "desktopLyricEnableSpectrum": {
+      "label": "频谱背景显示",
+      "description": "在桌面歌词底部显示实时频谱可视化"
+    },
+    "desktopLyricSpectrumColor": {
+      "label": "频谱颜色",
+      "description": "频谱条的颜色"
+    },
+    "desktopLyricSpectrumHeight": {
+      "label": "频谱高度",
+      "description": "频谱区域的高度（像素）"
+    },
+    "desktopLyricSpectrumOpacity": {
+      "label": "频谱透明度",
+      "description": "频谱条的透明度"
+    },
+    "desktopLyricSpectrumRadius": {
+      "label": "频谱圆角",
+      "description": "频谱条的圆角大小（像素）"
+    },
+    "desktopLyricImmersiveMode": {
+      "label": "沉浸模式",
+      "description": "放大歌词并添加背景模糊遮罩，营造更沉浸的视觉体验"
+    },
+    "desktopLyricImmersiveBlur": {
+      "label": "沉浸模糊强度",
+      "description": "背景模糊的程度（像素）"
+    },
+    "desktopLyricImmersiveDim": {
+      "label": "沉浸暗化强度",
+      "description": "背景遮罩的暗化程度"
+    },
+    "desktopLyricImmersiveScale": {
+      "label": "沉浸放大倍数",
+      "description": "歌词在沉浸模式下的放大倍数"
+    },
+    "desktopLyricLineSpacing": {
+      "label": "行间距",
+      "description": "歌词行与行之间的间距（像素）"
+    },
+    "desktopLyricGlowEffect": {
+      "label": "发光效果",
+      "description": "为歌词文字添加发光效果"
+    },
+    "desktopLyricGlowColor": {
+      "label": "发光颜色",
+      "description": "歌词发光效果的颜色"
+    },
+    "desktopLyricGlowIntensity": {
+      "label": "发光强度",
+      "description": "发光效果的强度"
+    },
     "dynamicIslandEnabled": {
       "label": "开启灵动岛",
       "description": "在屏幕顶部显示一个简洁的悬浮歌词窗口，可拖离至任意位置"
@@ -1134,6 +1186,34 @@
     "dynamicIslandUseCSSDrag": {
       "label": "使用 CSS 拖拽",
       "description": "使用 CSS -webkit-app-region 拖拽，在 Wayland 环境建议启用"
+    },
+    "dynamicIslandShowCover": {
+      "label": "显示封面",
+      "description": "在灵动岛中显示当前曲目的封面缩略图"
+    },
+    "dynamicIslandCoverBorderRadius": {
+      "label": "封面圆角",
+      "description": "封面缩略图的圆角大小（像素）"
+    },
+    "dynamicIslandGlowEffect": {
+      "label": "发光效果",
+      "description": "为灵动岛歌词文字添加发光效果"
+    },
+    "dynamicIslandGlowColor": {
+      "label": "发光颜色",
+      "description": "歌词发光效果的颜色"
+    },
+    "dynamicIslandGlowIntensity": {
+      "label": "发光强度",
+      "description": "发光效果的强度"
+    },
+    "dynamicIslandHorizontalPadding": {
+      "label": "水平内边距",
+      "description": "灵动岛左右两侧的内边距（像素）"
+    },
+    "dynamicIslandVerticalPadding": {
+      "label": "垂直内边距",
+      "description": "灵动岛上下两侧的内边距（像素）"
     },
     "taskbarLyricEnabled": {
       "label": "开启任务栏歌词",

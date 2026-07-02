@@ -1091,6 +1091,58 @@
       "label": "Enable CSS Drag",
       "description": "Enable CSS-based drag, recommended for Wayland environments"
     },
+    "desktopLyricEnableSpectrum": {
+      "label": "Spectrum Background",
+      "description": "Show real-time audio spectrum visualization at the bottom of desktop lyric"
+    },
+    "desktopLyricSpectrumColor": {
+      "label": "Spectrum Color",
+      "description": "Color of the spectrum bars"
+    },
+    "desktopLyricSpectrumHeight": {
+      "label": "Spectrum Height",
+      "description": "Height of the spectrum area in pixels"
+    },
+    "desktopLyricSpectrumOpacity": {
+      "label": "Spectrum Opacity",
+      "description": "Opacity of the spectrum bars"
+    },
+    "desktopLyricSpectrumRadius": {
+      "label": "Spectrum Radius",
+      "description": "Corner radius of the spectrum bars in pixels"
+    },
+    "desktopLyricImmersiveMode": {
+      "label": "Immersive Mode",
+      "description": "Enlarge lyrics and add background blur for a more immersive experience"
+    },
+    "desktopLyricImmersiveBlur": {
+      "label": "Immersive Blur",
+      "description": "Background blur intensity in pixels"
+    },
+    "desktopLyricImmersiveDim": {
+      "label": "Immersive Dim",
+      "description": "Background dimming intensity"
+    },
+    "desktopLyricImmersiveScale": {
+      "label": "Immersive Scale",
+      "description": "Lyric scaling multiplier in immersive mode"
+    },
+    "desktopLyricLineSpacing": {
+      "label": "Line Spacing",
+      "description": "Spacing between lyric lines in pixels"
+    },
+    "desktopLyricGlowEffect": {
+      "label": "Glow Effect",
+      "description": "Add glow effect to lyric text"
+    },
+    "desktopLyricGlowColor": {
+      "label": "Glow Color",
+      "description": "Color of the glow effect"
+    },
+    "desktopLyricGlowIntensity": {
+      "label": "Glow Intensity",
+      "description": "Intensity of the glow effect"
+    },
     "dynamicIslandEnabled": {
       "label": "Enable Dynamic Island",
       "description": "Show a compact floating lyric window at the top of the screen; drag it anywhere"
@@ -1146,6 +1198,34 @@
     "dynamicIslandUseCSSDrag": {
       "label": "Enable CSS Drag",
       "description": "Enable CSS-based drag, recommended for Wayland environments"
+    },
+    "dynamicIslandShowCover": {
+      "label": "Show Cover",
+      "description": "Display the current track cover thumbnail in the Dynamic Island"
+    },
+    "dynamicIslandCoverBorderRadius": {
+      "label": "Cover Border Radius",
+      "description": "Border radius of the cover thumbnail in pixels"
+    },
+    "dynamicIslandGlowEffect": {
+      "label": "Glow Effect",
+      "description": "Add glow effect to Dynamic Island lyric text"
+    },
+    "dynamicIslandGlowColor": {
+      "label": "Glow Color",
+      "description": "Color of the glow effect"
+    },
+    "dynamicIslandGlowIntensity": {
+      "label": "Glow Intensity",
+      "description": "Intensity of the glow effect"
+    },
+    "dynamicIslandHorizontalPadding": {
+      "label": "Horizontal Padding",
+      "description": "Left and right inner padding of the Dynamic Island in pixels"
+    },
+    "dynamicIslandVerticalPadding": {
+      "label": "Vertical Padding",
+      "description": "Top and bottom inner padding of the Dynamic Island in pixels"
     },
     "taskbarLyricEnabled": {
       "label": "Enable Taskbar Lyric",

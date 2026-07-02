@@ -118,6 +118,10 @@ export interface DesktopLyricSettings {
   unplayedColor: string;
   /** 描边颜色 */
   strokeColor: string;
+  /** 背景颜色（支持 rgba） */
+  backgroundColor: string;
+  /** 背景透明度（0~1），与 backgroundColor 组合使用 */
+  backgroundOpacity: number;
   /** 是否启用文本背景遮罩 */
   backgroundMask: boolean;
   /** 文本背景遮罩颜色 */
@@ -134,6 +138,32 @@ export interface DesktopLyricSettings {
   locked: boolean;
   /** 是否使用原生CSS窗口拖动 */
   useCSSDrag: boolean;
+  /** 启用频谱背景显示 */
+  enableSpectrum: boolean;
+  /** 频谱颜色 */
+  spectrumColor: string;
+  /** 频谱高度（像素） */
+  spectrumHeight: number;
+  /** 频谱透明度（0~1） */
+  spectrumOpacity: number;
+  /** 频谱 bar 圆角半径（px） */
+  spectrumRadius: number;
+  /** 沉浸模式：全屏无边框大歌词 */
+  immersiveMode: boolean;
+  /** 沉浸模式毛玻璃模糊半径（px） */
+  immersiveBlur: number;
+  /** 沉浸模式背景暗度（0~1） */
+  immersiveDim: number;
+  /** 沉浸模式歌词缩放倍率 */
+  immersiveScale: number;
+  /** 歌词行间距（像素） */
+  lineSpacing: number;
+  /** 发光效果 */
+  glowEffect: boolean;
+  /** 发光颜色 */
+  glowColor: string;
+  /** 发光强度（0~1） */
+  glowIntensity: number;
 }
 
 /** 灵动岛歌词配置 */
@@ -166,6 +196,20 @@ export interface DynamicIslandSettings {
   showTranslation: boolean;
   /** 是否使用原生CSS窗口拖动 */
   useCSSDrag: boolean;
+  /** 显示封面 */
+  showCover: boolean;
+  /** 封面圆角（像素） */
+  coverBorderRadius: number;
+  /** 发光效果 */
+  glowEffect: boolean;
+  /** 发光颜色 */
+  glowColor: string;
+  /** 发光强度（0~1） */
+  glowIntensity: number;
+  /** 水平内边距（像素） */
+  horizontalPadding: number;
+  /** 垂直内边距（像素） */
+  verticalPadding: number;
 }
 
 /** 任务栏歌词位置模式 */

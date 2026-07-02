@@ -24,6 +24,13 @@ const config = reactive<DynamicIslandSettings>({
   doubleLine: false,
   showTranslation: false,
   useCSSDrag: false,
+  showCover: true,
+  coverBorderRadius: 6,
+  glowEffect: false,
+  glowColor: "rgba(255, 255, 255, 0.3)",
+  glowIntensity: 0.3,
+  horizontalPadding: 0,
+  verticalPadding: 0,
 });
 
 const NOTCH_WIDTH = 181;
@@ -42,10 +49,14 @@ const hovering = ref(false);
 const mainRowHeight = computed(() => Math.round(DYNAMIC_ISLAND_BASE_HEIGHT * config.scale));
 
 /* 主元素尺寸 */
-const padX = computed(() => Math.round(mainRowHeight.value * 0.4));
+const padX = computed(() =>
+  Math.max(8, Math.round(mainRowHeight.value * 0.4 + config.horizontalPadding)),
+);
 const gap = computed(() => Math.round(mainRowHeight.value * 0.25));
-const coverSize = computed(() => Math.round(mainRowHeight.value * 0.65));
-const coverRadius = computed(() => Math.max(6, Math.round(coverSize.value * 0.35)));
+const coverSize = computed(() => (config.showCover ? Math.round(mainRowHeight.value * 0.65) : 0));
+const coverRadius = computed(() =>
+  Math.max(0, Math.round(config.coverBorderRadius * (config.scale >= 1 ? config.scale : 1))),
+);
 const fontSize = computed(() => Math.max(13, Math.round(mainRowHeight.value * 0.5)));
 const snapRadius = computed(() => Math.round(mainRowHeight.value * 0.6));
 const shapeBottomRadius = computed(() => Math.max(14, Math.round(coverRadius.value * 2)));
@@ -159,7 +170,7 @@ const getRendererWindowLimit = (): number =>
     Math.min(MAX_WINDOW_WIDTH, Math.floor(window.screen.width * MAX_WINDOW_WIDTH_RATIO)),
   );
 
-const fixedContentWidth = computed(() => padX.value * 2 + coverSize.value + gap.value);
+const fixedContentWidth = computed(() => padX.value * 2 + coverSize.value + (config.showCover ? gap.value : 0));
 const shapeExtraWidth = computed(() => (notchFusionEnabled.value ? SHAPE_SIDE_OVERHANG * 2 : 0));
 
 const maxLyricSlotWidth = computed(() => {
@@ -425,8 +436,16 @@ const rootStyle = computed(() => ({
   "--di-fusion-content-width": `${Math.max(1, shapeWidth.value - SHAPE_SIDE_OVERHANG * 2)}px`,
   "--di-snap-radius": `${snapRadius.value}px`,
   "--di-lyric-scale": lyricScale.value,
+  "--di-glow": config.glowEffect
+    ? `0 0 ${Math.round(6 + config.glowIntensity * 20)}px ${config.glowColor}, 0 0 ${Math.round(3 + config.glowIntensity * 10)}px ${config.glowColor}`
+    : "none",
+  "--di-glow-text": config.glowEffect
+    ? `0 0 ${Math.round(4 + config.glowIntensity * 14)}px ${config.glowColor}`
+    : "none",
   fontFamily: config.fontFamily || undefined,
   "-webkit-app-region": config.useCSSDrag ? "drag" : "no-drag",
+  paddingTop: `${config.verticalPadding}px`,
+  paddingBottom: `${config.verticalPadding}px`,
 }));
 
 const syncViewportSize = (): void => {
@@ -534,7 +553,7 @@ onBeforeUnmount(() => {
       <path :d="notchPath" fill="var(--di-bg)" />
     </svg>
     <div class="content">
-      <div class="cover">
+      <div v-if="config.showCover && coverSize > 0" class="cover">
         <img
           :src="track?.cover || DEFAULT_COVER"
           alt="cover"

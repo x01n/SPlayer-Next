@@ -16,7 +16,8 @@
       "@splayer/audio-engine": ["./native/audio-engine"],
       "@splayer/media-ctrl": ["./native/media-ctrl"],
       "@splayer/taskbar-lyric": ["./native/taskbar-lyric"],
-      "@splayer/taskbar-thumbnail": ["./native/taskbar-thumbnail"]
+      "@splayer/taskbar-thumbnail": ["./native/taskbar-thumbnail"],
+      "@splayer/x11-helper": ["./native/x11-helper"]
     }
   }
 }

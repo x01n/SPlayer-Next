@@ -1,3 +1,4 @@
+import { BrowserWindow } from "electron";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { app, ipcMain, powerMonitor } from "electron";
@@ -119,7 +120,13 @@ const registerNativeEvents = (inst: InstanceType<AudioEngineModule["AudioPlayer"
       }
       case "fftData": {
         const fftEvent = { type: "fftData", data: event.fftData ?? [] };
-        if (getMainWindow()?.isVisible()) sendToMain("player:event", fftEvent);
+        // 广播到所有可见窗口（包括桌面歌词、灵动岛等），不再局限于主窗口
+        const visibleOnly = true;
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (win.isDestroyed()) continue;
+          if (visibleOnly && !win.isVisible()) continue;
+          win.webContents.send("player:event", fftEvent);
+        }
         wsBroadcast(fftEvent);
         break;
       }

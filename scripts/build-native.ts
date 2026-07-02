@@ -21,6 +21,10 @@ const modules: NativeModule[] = [
     name: "taskbar-thumbnail",
     enabled: process.platform === "win32",
   },
+  {
+    name: "x11-helper",
+    enabled: process.platform === "linux",
+  },
 ];
 
 const isRustAvailable = () => {

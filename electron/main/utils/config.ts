@@ -17,6 +17,9 @@ export const isMac = process.platform === "darwin";
 /** 是否为 Linux 系统 */
 export const isLinux = process.platform === "linux";
 
+/** 是否为原生 Wayland 环境（非 XWayland） */
+export const isNativeWayland = isLinux && !!process.env.WAYLAND_DISPLAY;
+
 /** 是否为便携版 */
 export const isPortable = !!process.env.PORTABLE_EXECUTABLE_DIR;
 

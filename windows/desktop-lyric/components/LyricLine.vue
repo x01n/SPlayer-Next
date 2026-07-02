@@ -14,6 +14,10 @@ const props = defineProps<{
   isNext: boolean;
   /** 是否启用文本背景遮罩 */
   backgroundMask: boolean;
+  /** 是否启用发光效果 */
+  glowEffect?: boolean;
+  /** 发光强度（0~1） */
+  glowIntensity?: number;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -199,18 +203,19 @@ onBeforeUnmount(() => {
   <div class="dl-line-block" :style="blockStyle">
     <div ref="containerRef" class="dl-line" :style="lineStyle">
       <span ref="contentRef" class="dl-line-inner" :class="{ 'has-mask': backgroundMask }">
-        <span class="dl-text">
+        <span class="dl-text" :class="{ 'has-glow': glowEffect }">
           <template v-if="wordByWord">
             <span
               v-for="(word, i) in line.words"
               :key="i"
               :ref="(el) => setWordRef(el, i)"
               class="dl-word"
+              :class="{ 'has-glow': glowEffect }"
             >
               {{ word.word }}
             </span>
           </template>
-          <span v-else class="dl-static" :class="{ 'is-unplayed': isNext }">
+          <span v-else class="dl-static" :class="{ 'is-unplayed': isNext, 'has-glow': glowEffect }">
             {{ line.words.map((w) => w.word).join("") }}
           </span>
         </span>
@@ -259,6 +264,11 @@ onBeforeUnmount(() => {
   filter: drop-shadow(0 0 1px var(--dl-stroke, transparent))
     drop-shadow(0 0 2px var(--dl-stroke, transparent));
 }
+.dl-text.has-glow {
+  filter: drop-shadow(0 0 1px var(--dl-stroke, transparent))
+    drop-shadow(0 0 2px var(--dl-stroke, transparent))
+    var(--dl-glow-text, none);
+}
 .dl-word {
   --p: 0%;
   display: inline;
@@ -274,6 +284,9 @@ onBeforeUnmount(() => {
   -webkit-background-clip: text;
   background-clip: text;
 }
+.dl-word.has-glow {
+  filter: var(--dl-glow-text, none);
+}
 .dl-static {
   display: inline-block;
   color: var(--dl-played);
@@ -281,5 +294,8 @@ onBeforeUnmount(() => {
 }
 .dl-static.is-unplayed {
   color: var(--dl-unplayed);
+}
+.dl-static.has-glow {
+  filter: var(--dl-glow-text, none);
 }
 </style>

@@ -1,15 +1,86 @@
-import { BrowserWindow, screen } from "electron";
+import { app, BrowserWindow, screen } from "electron";
 import { join } from "path";
 import { is } from "@electron-toolkit/utils";
 import { createWindow } from "./create";
 import { store } from "@main/store";
 import { broadcast } from "@main/utils/broadcast";
-import { isMac } from "@main/utils/config";
+import { isMac, isLinux } from "@main/utils/config";
 import { setTrayDynamicIsland } from "@main/services/tray";
 import { isAppQuitting } from "@main/utils/lifecycle";
 import { DYNAMIC_ISLAND_BASE_HEIGHT } from "@shared/defaults/settings";
+import { execSync } from "child_process";
+import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 
 let dynamicIslandWindow: BrowserWindow | null = null;
+
+/** 检测原生 Wayland 环境（非 XWayland） */
+const isNativeWayland = isLinux && !!process.env.WAYLAND_DISPLAY;
+
+/** Electron 置顶层级，Linux 不支持 "overlay"，回退到 "screen-saver" */
+const ALWAYS_ON_TOP_LEVEL = (isLinux ? "screen-saver" : "overlay") as "screen-saver";
+
+/** KWin 脚本是否已加载 */
+let kwinScriptLoaded = false;
+
+/**
+ * 加载 KWin 脚本，用于在 KDE Plasma Wayland 下设置灵动岛窗口属性
+ * KWin 脚本 init() 会在加载时自动执行
+ */
+const setupKWinScript = (): void => {
+  if (kwinScriptLoaded || !isNativeWayland) return;
+  try {
+    const scriptDir = join(app.getPath("userData"), "app-data", "kwin-scripts");
+    const scriptPath = join(scriptDir, "splayer-dynamic-island.js");
+    if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
+
+    const scriptContent = `function init() {
+  function setupWindow(w) {
+    if (w.caption === "Dynamic Island") {
+      w.skipTaskbar = true;
+      w.noBorder = true;
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) setupWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(setupWindow);
+}`;
+
+    writeFileSync(scriptPath, scriptContent, "utf-8");
+    execSync(`qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`, {
+      timeout: 5000,
+      stdio: "pipe",
+    });
+    kwinScriptLoaded = true;
+  } catch {
+    // KWin 脚本加载失败时静默忽略
+  }
+};
+
+/**
+ * 执行一次性 KWin 脚本片段，用于动态修改灵动岛窗口状态
+ * @param body - 脚本函数体（不含 function init() 包装）
+ */
+const runKWinScript = (body: string): void => {
+  if (!isNativeWayland) return;
+  try {
+    const scriptDir = join(app.getPath("userData"), "app-data", "kwin-scripts");
+    const scriptPath = join(scriptDir, `splayer-kwin-${Date.now()}.js`);
+    if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
+    writeFileSync(scriptPath, `function init() { ${body} }`, "utf-8");
+    execSync(`qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`, {
+      timeout: 5000,
+      stdio: "pipe",
+    });
+    try {
+      unlinkSync(scriptPath);
+    } catch {
+      // 清理失败忽略
+    }
+  } catch {
+    // 动态脚本执行失败时静默忽略
+  }
+};
 
 /** 用户实测刘海物理宽度，按显示器 scaleFactor 换算成 Electron DIP */
 const NOTCH_PHYSICAL_WIDTH = 358;
@@ -168,7 +239,17 @@ const computeSnappedPos = (
 export const applyDynamicIslandAlwaysOnTop = (alwaysOnTop: boolean): void => {
   const win = getDynamicIslandWindow();
   if (!win) return;
-  win.setAlwaysOnTop(alwaysOnTop, "screen-saver");
+  win.setAlwaysOnTop(alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+  if (isLinux) {
+    win.setVisibleOnAllWorkspaces(alwaysOnTop, {
+      visibleOnFullScreen: alwaysOnTop,
+    });
+    if (isNativeWayland) {
+      runKWinScript(
+        `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "Dynamic Island") { windows[i].keepAbove = ${alwaysOnTop}; } }`,
+      );
+    }
+  }
 };
 
 /**
@@ -212,7 +293,11 @@ const stopCursorPolling = (): void => {
   // 离开时推一次 false，避免渲染端卡在 inside=true 状态
   if (lastCursorInside) {
     lastCursorInside = false;
-    dynamicIslandWindow?.webContents.send("dynamicIsland:cursorInside", false);
+    try {
+      dynamicIslandWindow?.webContents.send("dynamicIsland:cursorInside", false);
+    } catch {
+      // 窗口正在关闭时 webContents 可能已被销毁，忽略
+    }
   }
 };
 
@@ -223,11 +308,21 @@ const stopCursorPolling = (): void => {
 export const applyDynamicIslandNonOcclusive = (enabled: boolean): void => {
   const win = getDynamicIslandWindow();
   if (!win) return;
-  win.setIgnoreMouseEvents(enabled, { forward: true });
-  if (enabled) {
-    startCursorPolling();
+  if (isNativeWayland) {
+    // Wayland 下 Electron setIgnoreMouseEvents 不生效，workaround：强制 resize 触发 input region 更新
+    win.setIgnoreMouseEvents(enabled);
+    const b = win.getBounds();
+    win.setBounds({ ...b, width: b.width + 1 });
+    setTimeout(() => win.setBounds(b), 0);
+    win.setMovable(!enabled);
+    win.setResizable(!enabled);
   } else {
-    stopCursorPolling();
+    win.setIgnoreMouseEvents(enabled, { forward: true });
+    if (enabled) {
+      startCursorPolling();
+    } else {
+      stopCursorPolling();
+    }
   }
 };
 
@@ -441,6 +536,7 @@ export const saveDynamicIslandState = (): void => {
 
 /** 创建灵动岛窗口，如果窗口已存在则显示并聚焦 */
 export const createDynamicIslandWindow = (): BrowserWindow => {
+  if (isNativeWayland) setupKWinScript();
   if (dynamicIslandWindow && !dynamicIslandWindow.isDestroyed()) {
     dynamicIslandWindow.show();
     dynamicIslandWindow.focus();
@@ -512,6 +608,8 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
     roundedCorners: false,
     alwaysOnTop: config.alwaysOnTop,
     skipTaskbar: true,
+    focusable: !isLinux,
+    show: false,
     backgroundColor: "#00000000",
     webPreferences: {
       disableDialogs: true,
@@ -538,10 +636,41 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
 
   dynamicIslandWindow.once("ready-to-show", () => {
     if (!dynamicIslandWindow) return;
-    dynamicIslandWindow.setAlwaysOnTop(config.alwaysOnTop, "screen-saver");
+    dynamicIslandWindow.show();
+    dynamicIslandWindow.setAlwaysOnTop(config.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+    if (isLinux) {
+      dynamicIslandWindow.setVisibleOnAllWorkspaces(config.alwaysOnTop, {
+        visibleOnFullScreen: config.alwaysOnTop,
+      });
+      if (isNativeWayland) {
+        runKWinScript(
+          `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "Dynamic Island") { windows[i].keepAbove = ${config.alwaysOnTop}; windows[i].skipTaskbar = true; windows[i].noBorder = true; } }`,
+        );
+      }
+    }
     if (config.nonOcclusive) {
-      dynamicIslandWindow.setIgnoreMouseEvents(true, { forward: true });
-      startCursorPolling();
+      if (isNativeWayland) {
+        dynamicIslandWindow.setMovable(false);
+        dynamicIslandWindow.setResizable(false);
+      } else {
+        dynamicIslandWindow.setIgnoreMouseEvents(true, { forward: true });
+        startCursorPolling();
+      }
+    }
+  });
+
+  dynamicIslandWindow.on("show", () => {
+    const cfg = store.get("dynamicIsland");
+    dynamicIslandWindow?.setAlwaysOnTop(cfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+    if (isLinux) {
+      dynamicIslandWindow?.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, {
+        visibleOnFullScreen: cfg.alwaysOnTop,
+      });
+      if (isNativeWayland) {
+        runKWinScript(
+          `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "Dynamic Island") { windows[i].keepAbove = ${cfg.alwaysOnTop}; } }`,
+        );
+      }
     }
   });
 
@@ -566,6 +695,7 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
 /** 关闭灵动岛窗口 */
 export const closeDynamicIslandWindow = (): void => {
   if (dynamicIslandWindow && !dynamicIslandWindow.isDestroyed()) {
+    dynamicIslandWindow.setAlwaysOnTop(false);
     dynamicIslandWindow.close();
   }
 };

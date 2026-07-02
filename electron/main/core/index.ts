@@ -38,6 +38,9 @@ import {
 const configureMemoryOptimizations = (): void => {
   // 禁止预热备用渲染进程
   app.commandLine.appendSwitch("disable-features", "SpareRendererForSitePerProcess");
+  if (process.platform === "linux" && process.env.XDG_SESSION_TYPE === "wayland") {
+    app.commandLine.appendSwitch("ozone-platform", "wayland");
+  }
 };
 
 /** 内存指标采样间隔 */

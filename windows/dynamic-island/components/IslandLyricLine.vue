@@ -132,9 +132,11 @@ onBeforeUnmount(stopRenderLoop);
   );
   -webkit-background-clip: text;
   background-clip: text;
+  filter: var(--di-glow-text, none);
 }
 .dl-static {
   display: inline-block;
   color: var(--di-played);
+  filter: var(--di-glow-text, none);
 }
 </style>
