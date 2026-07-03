@@ -190,6 +190,12 @@ const playerCategory: SettingCategory = {
           descriptionKey: "settings.timeFormat.description",
         },
         {
+          key: "autoImmersive",
+          type: "switch",
+          binding: { store: "settings", path: "player.autoImmersive" },
+          defaultValue: false,
+        },
+        {
           key: "showProgressTooltip",
           type: "switch",
           binding: { store: "settings", path: "player.showProgressTooltip" },
@@ -207,12 +213,6 @@ const playerCategory: SettingCategory = {
           key: "snapToLyric",
           type: "switch",
           binding: { store: "settings", path: "player.snapToLyric" },
-          defaultValue: false,
-        },
-        {
-          key: "autoImmersive",
-          type: "switch",
-          binding: { store: "settings", path: "player.autoImmersive" },
           defaultValue: false,
         },
       ],

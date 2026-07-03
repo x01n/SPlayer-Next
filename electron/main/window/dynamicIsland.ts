@@ -837,6 +837,7 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
     cachedSize.width = b.width;
     cachedSize.height = b.height;
     dynamicIslandWindow.show();
+    dynamicIslandWindow.setAlwaysOnTop(config.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
     syncDynamicIslandState();
     if (config.nonOcclusive && !isNativeWayland) {
       startCursorPolling();
