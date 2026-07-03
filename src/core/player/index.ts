@@ -136,7 +136,7 @@ export const load = async (source: string, autoPlay = true, meta?: Track): Promi
  * 乐观更新：立即显示歌曲信息，快速切歌时只有最后一次 load 生效
  * @param track - 要播放的 Track，为 null 时忽略
  */
-const loadTrack = async (track: Track | null): Promise<void> => {
+export const loadTrack = async (track: Track | null): Promise<void> => {
   if (!track) return;
   const myToken = ++trackToken;
   // 乐观更新

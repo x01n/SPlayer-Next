@@ -10,6 +10,7 @@ import mediaSourceCategory from "./categories/streaming";
 import downloadCategory from "./categories/download";
 import localCacheCategory from "./categories/localCache";
 import pluginsCategory from "./categories/plugins";
+import listenTogetherCategory from "./categories/listenTogether";
 import AboutSettings from "@/components/settings/custom/AboutSettings.vue";
 import IconLucideInfo from "~icons/lucide/info";
 
@@ -22,6 +23,7 @@ export const settingsSchema: SettingCategory[] = [
   hotkeysCategory,
   servicesCategory,
   mediaSourceCategory,
+  listenTogetherCategory,
   downloadCategory,
   localCacheCategory,
   pluginsCategory,

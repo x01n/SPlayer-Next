@@ -3,6 +3,7 @@ import { useStatusStore } from "@/stores/status";
 import { useMediaStore } from "@/stores/media";
 import { useSettingsStore } from "@/stores/settings";
 import { useOrpheusProtocol } from "@/composables/useOrpheusProtocol";
+import { useListenTogetherProtocol } from "@/composables/useListenTogetherProtocol";
 
 const route = useRoute();
 const status = useStatusStore();
@@ -10,6 +11,8 @@ const settings = useSettingsStore();
 
 // 接入 orpheus 协议唤起
 useOrpheusProtocol();
+// 接入一起听协议唤起
+useListenTogetherProtocol();
 
 /** 有歌曲信息时显示播放栏 */
 const showPlayerBar = computed(() => !!useMediaStore().track);

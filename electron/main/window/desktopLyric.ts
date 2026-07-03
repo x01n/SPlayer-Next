@@ -67,6 +67,31 @@ const forceX11IgnoreMouseEvents = (ignore: boolean): void => {
 let kwinScriptLoaded = false;
 
 /**
+ * 尝试使用可用的 qdbus 工具加载 KWin 脚本
+ * @param scriptPath - KWin 脚本文件路径
+ * @throws 当所有 qdbus 命令都失败时抛出错误
+ */
+const runKWinScriptCommand = (scriptPath: string): void => {
+  const commands = [
+    `qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`,
+    `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`,
+    `qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`,
+    `dbus-send --session --type=method_call --dest=org.kde.KWin --print-reply /Scripting org.kde.kwin.Scripting.loadScript string:"${scriptPath}"`,
+  ];
+  let lastError: Error | undefined;
+  for (const cmd of commands) {
+    try {
+      execSync(cmd, { timeout: 5000, stdio: "pipe" });
+      return;
+    } catch (error) {
+      lastError = error as Error;
+      console.error(`[desktop-lyric] KWin script command failed: ${cmd}`, error);
+    }
+  }
+  throw lastError;
+};
+
+/**
  * 加载 KWin 脚本，用于在 KDE Plasma Wayland 下设置桌面歌词窗口属性
  * KWin 脚本 init() 会在加载时自动执行
  */
@@ -77,32 +102,36 @@ const setupKWinScript = (): void => {
     const scriptPath = join(scriptDir, "splayer-desktop-lyric.js");
     if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
 
+    const cfg = store.get("desktopLyric");
+    const alwaysOnTop = cfg.alwaysOnTop;
+
     const scriptContent = `function init() {
   function setupWindow(w) {
     if (w.caption === "SPlayer-Next - Desktop Lyric") {
       w.skipTaskbar = true;
       w.noBorder = true;
+      w.keepAbove = ${alwaysOnTop};
+      print("SPlayer desktop lyric setup: skipTaskbar=true, noBorder=true, keepAbove=" + ${alwaysOnTop});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) setupWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(setupWindow);
+  print("SPlayer desktop lyric init script loaded, alwaysOnTop=${alwaysOnTop}");
 }`;
 
     writeFileSync(scriptPath, scriptContent, "utf-8");
-    execSync(`qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`, {
-      timeout: 5000,
-      stdio: "pipe",
-    });
+    runKWinScriptCommand(scriptPath);
     kwinScriptLoaded = true;
-  } catch {
-    // KWin 脚本加载失败时静默忽略
+  } catch (error) {
+    console.error("[desktop-lyric] KWin setup script failed:", error);
   }
 };
 
 /**
- * 执行一次性 KWin 脚本片段，用于动态修改桌面歌词窗口状态
+ * 执行 KWin 脚本片段，用于动态修改桌面歌词窗口状态
+ * 脚本会同时处理当前已存在的窗口，并监听新窗口加入事件
  * @param body - 脚本函数体（不含 function init() 包装）
  */
 const runKWinScript = (body: string): void => {
@@ -111,18 +140,19 @@ const runKWinScript = (body: string): void => {
     const scriptDir = join(app.getPath("userData"), "app-data", "kwin-scripts");
     const scriptPath = join(scriptDir, `splayer-kwin-${Date.now()}.js`);
     if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
-    writeFileSync(scriptPath, `function init() { ${body} }`, "utf-8");
-    execSync(`qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`, {
-      timeout: 5000,
-      stdio: "pipe",
-    });
+    writeFileSync(
+      scriptPath,
+      `function init() { ${body} }`,
+      "utf-8",
+    );
+    runKWinScriptCommand(scriptPath);
     try {
       unlinkSync(scriptPath);
     } catch {
       // 清理失败忽略
     }
-  } catch {
-    // 动态脚本执行失败时静默忽略
+  } catch (error) {
+    console.error("[desktop-lyric] KWin dynamic script failed:", error);
   }
 };
 
@@ -207,7 +237,8 @@ const saveWindowState = (): void => {
 
 /**
  * 同步应用桌面歌词的状态（置顶、锁定）
- * Linux 下 X11 MapWindow 是异步的，setIgnoreMouseEvents / forceX11AlwaysOnTop 必须在窗口映射完成后才生效
+ * 部分窗口管理器/桌面环境下，窗口映射完成前 setAlwaysOnTop 可能不生效，
+ * 延迟后再同步一次置顶状态，确保桌面歌词始终保持在最上层
  */
 const syncDesktopLyricState = (): void => {
   if (!desktopLyricWindow || desktopLyricWindow.isDestroyed()) return;
@@ -219,23 +250,31 @@ const syncDesktopLyricState = (): void => {
   if (!isLinux && cfg.locked) {
     desktopLyricWindow.setIgnoreMouseEvents(true, { forward: true });
   }
-  if (isLinux) {
-    setTimeout(() => {
-      if (!desktopLyricWindow || desktopLyricWindow.isDestroyed()) return;
-      const currentCfg = store.get("desktopLyric");
+
+  // 第一次延迟同步（300ms）
+  setTimeout(() => {
+    if (!desktopLyricWindow || desktopLyricWindow.isDestroyed()) return;
+    const currentCfg = store.get("desktopLyric");
+    desktopLyricWindow.setAlwaysOnTop(currentCfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+    if (isLinux) {
+      desktopLyricWindow.setVisibleOnAllWorkspaces(currentCfg.alwaysOnTop, {
+        visibleOnFullScreen: currentCfg.alwaysOnTop,
+      });
       if (isNativeWayland) {
-        desktopLyricWindow.setVisibleOnAllWorkspaces(currentCfg.alwaysOnTop, {
-          visibleOnFullScreen: currentCfg.alwaysOnTop,
-        });
-        if (currentCfg.locked) {
-          desktopLyricWindow.setMovable(false);
-          desktopLyricWindow.setResizable(false);
-        } else {
-          desktopLyricWindow.setMovable(true);
-          desktopLyricWindow.setResizable(true);
-        }
+        desktopLyricWindow.setMovable(!currentCfg.locked);
+        desktopLyricWindow.setResizable(!currentCfg.locked);
         runKWinScript(
-          `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "SPlayer-Next - Desktop Lyric") { windows[i].keepAbove = ${currentCfg.alwaysOnTop}; windows[i].skipTaskbar = true; windows[i].noBorder = true; } }`,
+          `function applyToWindow(w) {
+    if (w.caption === "SPlayer-Next - Desktop Lyric") {
+      w.keepAbove = ${currentCfg.alwaysOnTop};
+      print("SPlayer desktop lyric keepAbove = " + ${currentCfg.alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer desktop lyric sync script loaded, keepAbove = " + ${currentCfg.alwaysOnTop});`,
         );
       } else {
         if (currentCfg.locked) {
@@ -247,8 +286,37 @@ const syncDesktopLyricState = (): void => {
         }
         forceX11AlwaysOnTop(currentCfg.alwaysOnTop);
       }
-    }, 200);
+    }
+  }, 300);
+
+  // 第二次延迟同步（900ms），覆盖窗口管理器延迟映射场景
+  setTimeout(() => {
+    if (!desktopLyricWindow || desktopLyricWindow.isDestroyed()) return;
+    const currentCfg = store.get("desktopLyric");
+    desktopLyricWindow.setAlwaysOnTop(currentCfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+    if (isLinux) {
+      desktopLyricWindow.setVisibleOnAllWorkspaces(currentCfg.alwaysOnTop, {
+        visibleOnFullScreen: currentCfg.alwaysOnTop,
+      });
+      if (isNativeWayland) {
+        runKWinScript(
+          `function applyToWindow(w) {
+    if (w.caption === "SPlayer-Next - Desktop Lyric") {
+      w.keepAbove = ${currentCfg.alwaysOnTop};
+      print("SPlayer desktop lyric keepAbove = " + ${currentCfg.alwaysOnTop});
+    }
   }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer desktop lyric sync script loaded, keepAbove = " + ${currentCfg.alwaysOnTop});`,
+        );
+      } else {
+        forceX11AlwaysOnTop(currentCfg.alwaysOnTop);
+      }
+    }
+  }, 900);
 };
 
 /**
@@ -292,10 +360,38 @@ export const applyDesktopLyricAlwaysOnTop = (alwaysOnTop: boolean): void => {
     });
     if (isNativeWayland) {
       runKWinScript(
-        `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "SPlayer-Next - Desktop Lyric") { windows[i].keepAbove = ${alwaysOnTop}; } }`,
+        `function applyToWindow(w) {
+    if (w.caption === "SPlayer-Next - Desktop Lyric") {
+      w.keepAbove = ${alwaysOnTop};
+      print("SPlayer desktop lyric keepAbove = " + ${alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer desktop lyric apply script loaded, keepAbove = " + ${alwaysOnTop});`,
       );
+      // Wayland 下 KWin 脚本可能异步执行，延迟后再次尝试
+      setTimeout(() => {
+        runKWinScript(
+          `function applyToWindow(w) {
+    if (w.caption === "SPlayer-Next - Desktop Lyric") {
+      w.keepAbove = ${alwaysOnTop};
+      print("SPlayer desktop lyric keepAbove retry = " + ${alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer desktop lyric retry script loaded, keepAbove = " + ${alwaysOnTop});`,
+        );
+      }, 600);
     } else {
       forceX11AlwaysOnTop(alwaysOnTop);
+      // X11 MapWindow 异步，延迟后再强制一次
+      setTimeout(() => forceX11AlwaysOnTop(alwaysOnTop), 300);
     }
   }
 };

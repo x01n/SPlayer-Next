@@ -57,7 +57,10 @@ const config: Configuration = {
     artifactName: "${productName}-${version}-${arch}.${ext}",
     forceCodeSigning: false,
     target: ["nsis", "portable"],
-    protocols: [{ name: "Orpheus Protocol", schemes: ["orpheus"] }],
+    protocols: [
+      { name: "Orpheus Protocol", schemes: ["orpheus"] },
+      { name: "Listen Together Protocol", schemes: ["splayer-listentogether"] },
+    ],
   },
   nsis: {
     oneClick: false,
@@ -92,7 +95,10 @@ const config: Configuration = {
         "Application requests access to the user's Documents folder.",
       NSDownloadsFolderUsageDescription:
         "Application requests access to the user's Downloads folder.",
-      CFBundleURLTypes: [{ CFBundleURLName: "Orpheus Protocol", CFBundleURLSchemes: ["orpheus"] }],
+      CFBundleURLTypes: [
+        { CFBundleURLName: "Orpheus Protocol", CFBundleURLSchemes: ["orpheus"] },
+        { CFBundleURLName: "Listen Together Protocol", CFBundleURLSchemes: ["splayer-listentogether"] },
+      ],
     },
     target: ["dmg", "zip"],
   },
@@ -107,7 +113,7 @@ const config: Configuration = {
     category: "Audio;Music;AudioVideo;",
     target: ["AppImage", "deb", "rpm", "tar.gz"],
     syncDesktopName: true,
-    desktop: { entry: { MimeType: "x-scheme-handler/orpheus;" } },
+    desktop: { entry: { MimeType: "x-scheme-handler/orpheus;x-scheme-handler/splayer-listentogether;" } },
   },
   appImage: {
     artifactName: "${name}-${version}-${arch}.${ext}",

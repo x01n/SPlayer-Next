@@ -20,10 +20,22 @@
       "subtitle": "一个现代化的桌面音乐播放器，完成几步设置即可开始享用",
       "start": "开始设置",
       "features": {
-        "local": { "title": "本地音乐库", "desc": "扫描本地目录，自动整理音乐库" },
-        "quality": { "title": "无损音质", "desc": "原生音频引擎，支持多种无损格式" },
-        "streaming": { "title": "流媒体服务器", "desc": "Subsonic / Jellyfin / Emby 等" },
-        "lyrics": { "title": "丰富歌词体验", "desc": "AMLL 逐字歌词，桌面歌词、灵动岛、任务栏歌词" }
+        "local": {
+          "title": "本地音乐库",
+          "desc": "扫描本地目录，自动整理音乐库"
+        },
+        "quality": {
+          "title": "无损音质",
+          "desc": "原生音频引擎，支持多种无损格式"
+        },
+        "streaming": {
+          "title": "流媒体服务器",
+          "desc": "Subsonic / Jellyfin / Emby 等"
+        },
+        "lyrics": {
+          "title": "丰富歌词体验",
+          "desc": "AMLL 逐字歌词，桌面歌词、灵动岛、任务栏歌词"
+        }
       }
     },
     "agreement": {
@@ -169,7 +181,8 @@
       "quick": "快捷",
       "history": "搜索历史",
       "hot": "热搜榜"
-    }
+    },
+    "listenTogether": "一起听"
   },
   "home": {
     "greetingLine": "{greeting}，{name}",
@@ -221,6 +234,10 @@
       "fm": {
         "title": "私人 FM",
         "desc": "为你不停推荐"
+      },
+      "listenTogether": {
+        "title": "一起听",
+        "desc": "与朋友同步听歌"
       }
     },
     "continue": {
@@ -637,7 +654,8 @@
       "download": "下载配置",
       "localCache": "本地与缓存",
       "plugins": "插件管理",
-      "about": "关于软件"
+      "about": "关于软件",
+      "listenTogether": "一起听"
     },
     "section": {
       "network": "网络代理",
@@ -682,7 +700,8 @@
       "downloadGeneral": "下载选项",
       "downloadTags": "写入内容",
       "backupReset": "备份与重置",
-      "debug": "调试"
+      "debug": "调试",
+      "listenTogether": "一起听设置"
     },
     "about": {
       "checkUpdate": "检查更新",
@@ -737,6 +756,25 @@
     "pauseOnDeviceSwitch": {
       "label": "切换时暂停播放",
       "description": "切换输出设备时暂停播放，例如蓝牙设备的断联"
+    },
+    "timeFormat": {
+      "label": "时间显示格式",
+      "description": "底栏右侧和播放页面底部的时间如何显示（单击时间可以快速切换）",
+      "currentTotal": "播放时间 / 总时长",
+      "remainingTotal": "剩余时间 / 总时长",
+      "currentRemaining": "播放时间 / 剩余时间"
+    },
+    "showProgressTooltip": {
+      "label": "显示进度条悬浮信息",
+      "description": "拖拽进度条时显示悬浮提示框"
+    },
+    "showProgressLyric": {
+      "label": "进度条悬浮时显示歌词",
+      "description": "悬浮提示框中同时显示当前时间对应的歌词"
+    },
+    "snapToLyric": {
+      "label": "进度调节吸附最近歌词",
+      "description": "调节进度时自动吸附到最近的歌词行"
     },
     "enableSpectrum": {
       "label": "启用音乐频谱",
@@ -1046,6 +1084,10 @@
     "desktopLyricStrokeColor": {
       "label": "描边颜色",
       "description": "歌词文字的描边颜色，透明则视为关闭描边"
+    },
+    "desktopLyricBackgroundColor": {
+      "label": "背景颜色",
+      "description": "桌面歌词窗口的背景颜色"
     },
     "desktopLyricBackgroundMask": {
       "label": "文本背景遮罩",
@@ -1518,6 +1560,10 @@
       "label": "监听端口",
       "description": "外部 API 服务监听的端口（1024–65535）"
     },
+    "externalApiApiKey": {
+      "label": "API 鉴权密钥",
+      "description": "外部 HTTP API 的访问密钥，为空时不进行鉴权"
+    },
     "externalApiPanel": {
       "label": "",
       "description": ""
@@ -1660,9 +1706,18 @@
         "homepage": "主页"
       },
       "grant": {
-        "network": { "label": "联网", "desc": "插件可发起网络请求" },
-        "control": { "label": "控制", "desc": "插件可控制播放器" },
-        "ui": { "label": "界面", "desc": "插件可扩展或修改应用界面" }
+        "network": {
+          "label": "联网",
+          "desc": "插件可发起网络请求"
+        },
+        "control": {
+          "label": "控制",
+          "desc": "插件可控制播放器"
+        },
+        "ui": {
+          "label": "界面",
+          "desc": "插件可扩展或修改应用界面"
+        }
       }
     },
     "pluginManager": {
@@ -1804,6 +1859,30 @@
       "button": "清空全部",
       "confirmTitle": "清空全部数据库缓存？",
       "confirmDesc": "将删除上方全部数据库缓存，操作不可恢复"
+    },
+    "listenTogetherEnabled": {
+      "label": "启用一起听",
+      "description": "开启一起听功能，允许创建或加入房间"
+    },
+    "listenTogetherAuthKey": {
+      "label": "鉴权密钥",
+      "description": "房主创建房间时使用的鉴权密钥"
+    },
+    "listenTogetherDefaultRoomName": {
+      "label": "默认房间名称",
+      "description": "创建房间时的默认名称"
+    },
+    "listenTogetherSyncInterval": {
+      "label": "同步间隔",
+      "description": "同步播放状态的时间间隔"
+    },
+    "listenTogetherVoteTimeout": {
+      "label": "投票超时",
+      "description": "众人决策操作时的投票超时时间"
+    },
+    "listenTogetherAllowAnonymousChat": {
+      "label": "允许匿名聊天",
+      "description": "允许未登录用户参与聊天"
     }
   },
   "collection": {
@@ -1887,6 +1966,66 @@
       "trackNumber": "音轨号",
       "discNumber": "碟号",
       "lyrics": "内嵌歌词"
+    }
+  },
+  "listenTogether": {
+    "panel": {
+      "title": "一起听",
+      "status": {
+        "connecting": "连接中...",
+        "connected": "已连接",
+        "disconnected": "已断开",
+        "error": "连接错误"
+      },
+      "leave": "离开",
+      "members": "{count} 人在线",
+      "unknownArtist": "未知歌手",
+      "createRoom": "创建房间",
+      "joinRoom": "加入房间",
+      "confirmCreate": "确认创建",
+      "confirmJoin": "确认加入",
+      "nicknamePlaceholder": "输入你的昵称",
+      "roomNamePlaceholder": "输入房间名称（留空使用默认）",
+      "authKeyPlaceholder": "输入鉴权密钥（留空使用设置中的默认值）",
+      "linkPlaceholder": "粘贴一起听分享链接",
+      "serverUrlPlaceholder": "服务器地址",
+      "roomIdPlaceholder": "房间 ID",
+      "roomKeyPlaceholder": "房间密钥",
+      "useLink": "使用链接加入",
+      "manualInput": "手动输入",
+      "joinInfoRequired": "请填写完整的服务器信息",
+      "nicknameRequired": "请输入昵称",
+      "authKeyRequired": "请输入鉴权密钥或在一起听设置中配置",
+      "createSuccess": "房间创建成功",
+      "createFailed": "房间创建失败",
+      "copyLink": "复制分享链接",
+      "closeRoom": "关闭房间",
+      "left": "已离开房间",
+      "closed": "房间已关闭"
+    },
+    "protocol": {
+      "invalidLink": "无效的一起听链接",
+      "alreadyInRoom": "您已在房间中，请先离开当前房间",
+      "joining": "正在加入一起听房间...",
+      "joinSuccess": "成功加入一起听房间",
+      "joinFailed": "加入一起听房间失败"
+    },
+    "page": {
+      "title": "一起听",
+      "subtitle": "与朋友同步听歌",
+      "hint": "创建或加入一个房间开始一起听",
+      "members": "成员列表",
+      "host": "房主",
+      "kick": "踢出",
+      "blacklist": "拉黑",
+      "chat": "聊天室",
+      "noMessages": "还没有消息，说点什么吧~",
+      "chatPlaceholder": "输入消息...",
+      "send": "发送",
+      "kickSuccess": "已踢出成员",
+      "kickFailed": "踢出失败",
+      "blacklistSuccess": "已拉黑成员",
+      "blacklistFailed": "拉黑失败"
     }
   }
 }

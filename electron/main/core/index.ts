@@ -31,6 +31,11 @@ import {
   extractOrpheusUrl,
   captureOrpheusUrl,
 } from "@main/services/orpheus";
+import {
+  initListenTogetherProtocol,
+  extractListenTogetherUrl,
+  captureListenTogetherUrl,
+} from "@main/services/listenTogetherProtocol";
 
 /**
  * 配置 Chromium 启动参数以优化内存占用
@@ -80,27 +85,43 @@ export const initApp = (): void => {
   // 单例锁
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
-    app.quit();
+    coreLog.warn("未获取到单例锁，退出重复实例");
+    app.exit();
     return;
   }
   app.on("second-instance", (_event, commandLine) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
     const url = extractOrpheusUrl(commandLine);
     if (url) captureOrpheusUrl(url);
+    const ltUrl = extractListenTogetherUrl(commandLine);
+    if (ltUrl) captureListenTogetherUrl(ltUrl);
   });
   // macOS 通过 open-url 接收协议唤起
   app.on("open-url", (event, url) => {
     event.preventDefault();
-    captureOrpheusUrl(url);
+    if (url.startsWith("splayer-listentogether://")) {
+      captureListenTogetherUrl(url);
+    } else {
+      captureOrpheusUrl(url);
+    }
   });
   // 注册缓存协议方案
   registerCacheScheme();
   // 其他初始化
   app.whenReady().then(() => {
+    // 保护性检查：防止单例锁在 Linux/Wayland 下失效时重复创建窗口
+    if (BrowserWindow.getAllWindows().length > 0) {
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
+      return;
+    }
     electronApp.setAppUserModelId("top.imsyy.splayer-next");
     // 注册 cache:// 协议处理
     handleCacheProtocol();
@@ -115,6 +136,10 @@ export const initApp = (): void => {
     initOrpheusRegistration();
     const coldOrpheusUrl = extractOrpheusUrl(process.argv);
     if (coldOrpheusUrl) captureOrpheusUrl(coldOrpheusUrl);
+    // 注册一起听协议并处理冷启动唤起
+    initListenTogetherProtocol();
+    const coldLtUrl = extractListenTogetherUrl(process.argv);
+    if (coldLtUrl) captureListenTogetherUrl(coldLtUrl);
     // 初始化数据库
     initDatabase();
     // 启动歌曲缓存

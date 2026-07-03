@@ -46,6 +46,8 @@ declare global {
         relaunch: () => Promise<void>;
         onProtocolUrl: (callback: (url: string) => void) => () => void;
         consumePendingProtocolUrl: () => Promise<string | null>;
+        consumePendingListenTogetherUrl: () => Promise<string | null>;
+        onListenTogetherUrl: (callback: (url: string) => void) => () => void;
       };
       library: LibraryApi;
       window: WindowApi;
@@ -88,6 +90,21 @@ declare global {
         getStatus: () => Promise<ExternalApiStatus>;
       };
       update: UpdateApi;
+      listenTogether: {
+        createRoom: (nickname: string, neteaseUserId?: number, authKey?: string, roomName?: string) => Promise<
+          { ok: boolean; room?: Record<string, unknown>; roomKey?: string; hostToken?: string; error?: string }
+        >;
+        closeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
+        getRoom: () => Promise<Record<string, unknown> | null>;
+        getRoomKey: () => Promise<string | null>;
+        getShareLink: (roomId: string) => Promise<string | null>;
+        getRawShareLink: (roomId: string) => Promise<string | null>;
+        isEnabled: () => Promise<boolean>;
+        verifyAuthKey: (key: string) => Promise<boolean>;
+        kickMember: (roomId: string, memberId: string) => Promise<{ ok: boolean; error?: string }>;
+        blacklistMember: (roomId: string, memberId: string) => Promise<{ ok: boolean; error?: string }>;
+        decodeInviteCode: (code: string) => Promise<{ roomId: string; roomKey: string } | null>;
+      };
     };
   }
 }

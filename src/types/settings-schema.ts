@@ -8,7 +8,8 @@ export type SettingWidgetType =
   | "color"
   | "button"
   | "custom"
-  | "number";
+  | "number"
+  | "text";
 
 /** 选择项 */
 export interface SettingOption {

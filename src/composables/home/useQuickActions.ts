@@ -1,12 +1,14 @@
 import { useUserStore } from "@/stores/user";
 import { useHeartMode } from "@/composables/useHeartMode";
 import { useFmMode } from "@/composables/useFmMode";
+import { useSettingsDialog } from "@/settings/useSettingsDialog";
 import { toast } from "@/composables/useToast";
 import * as player from "@/core/player";
 import IconDices from "~icons/lucide/dices";
 import IconCalendarDays from "~icons/lucide/calendar-days";
 import IconHeart from "~icons/sp/heart-mode";
 import IconRadio from "~icons/lucide/radio";
+import IconUsers from "~icons/lucide/users";
 
 /**
  * 首页快捷入口
@@ -17,6 +19,7 @@ export const useQuickActions = () => {
   const user = useUserStore();
   const { enterHeartMode } = useHeartMode();
   const { enterFmMode } = useFmMode();
+  const { show: showSettings } = useSettingsDialog();
 
   /** 试试手气 */
   const playLucky = useThrottleFn(async (): Promise<void> => {
@@ -46,6 +49,9 @@ export const useQuickActions = () => {
   /** 进入私人 FM */
   const playFm = useThrottleFn(() => enterFmMode(), 800);
 
+  /** 打开一起听设置 */
+  const openListenTogether = useThrottleFn(() => showSettings("listenTogether"), 800);
+
   /** 快捷入口列表 */
   const quickActions = computed(() => [
     {
@@ -71,6 +77,12 @@ export const useQuickActions = () => {
       title: t("home.quickActions.fm.title"),
       desc: t("home.quickActions.fm.desc"),
       run: playFm,
+    },
+    {
+      icon: IconUsers,
+      title: t("home.quickActions.listenTogether.title"),
+      desc: t("home.quickActions.listenTogether.desc"),
+      run: openListenTogether,
     },
   ]);
 

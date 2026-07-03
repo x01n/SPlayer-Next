@@ -371,3 +371,26 @@ const onPointerUp = (): void => {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 水平滑块 hover 效果 */
+.s-slider-hitbox:not(.flex-col) .s-slider-track,
+.s-slider-hitbox:not(.flex-col) .s-slider-fill {
+  transition: height 0.2s ease;
+}
+
+.s-slider-hitbox:not(.flex-col):hover .s-slider-track,
+.s-slider-hitbox:not(.flex-col):hover .s-slider-fill {
+  height: v-bind('Math.round(trackHeight * 1.6) + "px"') !important;
+}
+
+.s-slider-hitbox:not(.flex-col) .s-slider-thumb {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.s-slider-hitbox:not(.flex-col):hover .s-slider-thumb {
+  transform: translate(-50%, 0) scale(1.25);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+</style>

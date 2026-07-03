@@ -2,6 +2,8 @@ import type { PluginsConfig, PluginQuality } from "./plugin";
 import type { HotkeyConfig } from "./hotkey";
 import type { DownloadLyricFormat, DownloadFolderScheme } from "./download";
 
+import type { ListenTogetherSettings } from "./listenTogether";
+
 /** 支持的语言代码 */
 export type LocaleCode = "zh-CN" | "en-US";
 
@@ -268,6 +270,8 @@ export interface ExternalApiSettings {
   allowLan: boolean;
   /** 监听端口 */
   port: number;
+  /** 外部 API 鉴权密钥；为空时不校验 */
+  apiKey: string;
 }
 
 /** 外部 API 服务运行时状态 */
@@ -422,7 +426,7 @@ export interface SystemConfig {
   /** 流媒体总开关 */
   streaming: StreamingSettings;
   /** Last.fm 集成配置 */
-  lastfm: LastfmSettings;
+  lastfm: LastfmSettings;  /** 一起听配置 */  listenTogether: ListenTogetherSettings;
   /** 外部 API 服务（HTTP + WS） */
   externalApi: ExternalApiSettings;
   /** 应用更新配置 */

@@ -128,6 +128,12 @@ const servicesCategory: SettingCategory = {
               defaultValue: 14558,
             },
             {
+              key: "externalApiApiKey",
+              type: "text",
+              binding: { store: "settings", path: "system.externalApi.apiKey" },
+              defaultValue: "",
+            },
+            {
               key: "externalApiPanel",
               type: "custom",
               component: ExternalApiPanel,

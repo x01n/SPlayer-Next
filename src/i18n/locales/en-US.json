@@ -181,7 +181,8 @@
       "quick": "Quick",
       "history": "Recent searches",
       "hot": "Trending"
-    }
+    },
+    "listenTogether": "Listen Together"
   },
   "home": {
     "greetingLine": "{greeting}, {name}",
@@ -233,6 +234,10 @@
       "fm": {
         "title": "Personal FM",
         "desc": "Endless recommendations"
+      },
+      "listenTogether": {
+        "title": "Listen Together",
+        "desc": "Sync music with friends"
       }
     },
     "continue": {
@@ -649,7 +654,8 @@
       "download": "Downloads",
       "localCache": "Local & Cache",
       "plugins": "Plugin Manager",
-      "about": "About"
+      "about": "About",
+      "listenTogether": "Listen Together"
     },
     "section": {
       "network": "Network & Proxy",
@@ -694,7 +700,8 @@
       "cache": "Caches",
       "database": "Database",
       "backupReset": "Backup & Reset",
-      "debug": "Debug"
+      "debug": "Debug",
+      "listenTogether": "Listen Together"
     },
     "about": {
       "checkUpdate": "Check for Updates",
@@ -749,6 +756,25 @@
     "pauseOnDeviceSwitch": {
       "label": "Pause on Device Switch",
       "description": "Pause playback when switching the output device, e.g. when a Bluetooth device disconnects"
+    },
+    "timeFormat": {
+      "label": "Time Display Format",
+      "description": "How to display time in the player bar and full player (click to quickly toggle)",
+      "currentTotal": "Elapsed / Total",
+      "remainingTotal": "Remaining / Total",
+      "currentRemaining": "Elapsed / Remaining"
+    },
+    "showProgressTooltip": {
+      "label": "Show Progress Tooltip",
+      "description": "Show a tooltip when dragging the progress bar"
+    },
+    "showProgressLyric": {
+      "label": "Show Lyric in Tooltip",
+      "description": "Display the current lyric line in the progress tooltip"
+    },
+    "snapToLyric": {
+      "label": "Snap to Nearest Lyric",
+      "description": "Automatically snap to the nearest lyric line when adjusting progress"
     },
     "enableSpectrum": {
       "label": "Enable Spectrum",
@@ -1058,6 +1084,10 @@
     "desktopLyricStrokeColor": {
       "label": "Stroke Color",
       "description": "Outline color of lyric text; transparent means stroke is off"
+    },
+    "desktopLyricBackgroundColor": {
+      "label": "Background Color",
+      "description": "Background color of the desktop lyric window"
     },
     "desktopLyricBackgroundMask": {
       "label": "Text Background Mask",
@@ -1530,6 +1560,10 @@
       "label": "Listen port",
       "description": "TCP port for the external API (1024–65535)"
     },
+    "externalApiApiKey": {
+      "label": "API Auth Key",
+      "description": "Access key for the external HTTP API; leave empty to disable authentication"
+    },
     "externalApiPanel": {
       "label": "",
       "description": ""
@@ -1672,9 +1706,18 @@
         "homepage": "Homepage"
       },
       "grant": {
-        "network": { "label": "Network", "desc": "Can make network requests" },
-        "control": { "label": "Control", "desc": "Can control the player" },
-        "ui": { "label": "Interface", "desc": "Can extend or modify the app interface" }
+        "network": {
+          "label": "Network",
+          "desc": "Can make network requests"
+        },
+        "control": {
+          "label": "Control",
+          "desc": "Can control the player"
+        },
+        "ui": {
+          "label": "Interface",
+          "desc": "Can extend or modify the app interface"
+        }
       }
     },
     "pluginManager": {
@@ -1816,6 +1859,30 @@
       "button": "Clear All",
       "confirmTitle": "Clear all database caches?",
       "confirmDesc": "All database caches above will be cleared. This cannot be undone."
+    },
+    "listenTogetherEnabled": {
+      "label": "Enable Listen Together",
+      "description": "Enable Listen Together to create or join rooms"
+    },
+    "listenTogetherAuthKey": {
+      "label": "Auth Key",
+      "description": "Authentication key used when creating a room"
+    },
+    "listenTogetherDefaultRoomName": {
+      "label": "Default Room Name",
+      "description": "Default name when creating a room"
+    },
+    "listenTogetherSyncInterval": {
+      "label": "Sync Interval",
+      "description": "Interval for syncing playback state"
+    },
+    "listenTogetherVoteTimeout": {
+      "label": "Vote Timeout",
+      "description": "Timeout for group decision voting"
+    },
+    "listenTogetherAllowAnonymousChat": {
+      "label": "Allow Anonymous Chat",
+      "description": "Allow unauthenticated users to chat"
     }
   },
   "collection": {
@@ -1899,6 +1966,66 @@
       "trackNumber": "Track No.",
       "discNumber": "Disc No.",
       "lyrics": "Embedded Lyrics"
+    }
+  },
+  "listenTogether": {
+    "panel": {
+      "title": "Listen Together",
+      "status": {
+        "connecting": "Connecting...",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "error": "Connection Error"
+      },
+      "leave": "Leave",
+      "members": "{count} online",
+      "unknownArtist": "Unknown Artist",
+      "createRoom": "Create Room",
+      "joinRoom": "Join Room",
+      "confirmCreate": "Create",
+      "confirmJoin": "Join",
+      "nicknamePlaceholder": "Enter your nickname",
+      "roomNamePlaceholder": "Enter room name (optional)",
+      "authKeyPlaceholder": "Enter auth key (optional)",
+      "linkPlaceholder": "Paste Listen Together link",
+      "serverUrlPlaceholder": "Server address",
+      "roomIdPlaceholder": "Room ID",
+      "roomKeyPlaceholder": "Room key",
+      "useLink": "Join via link",
+      "manualInput": "Manual input",
+      "joinInfoRequired": "Please fill in all server info",
+      "nicknameRequired": "Please enter a nickname",
+      "authKeyRequired": "Please enter auth key or configure it in Listen Together settings",
+      "createSuccess": "Room created",
+      "createFailed": "Failed to create room",
+      "copyLink": "Copy share link",
+      "closeRoom": "Close room",
+      "left": "Left room",
+      "closed": "Room closed"
+    },
+    "protocol": {
+      "invalidLink": "Invalid Listen Together link",
+      "alreadyInRoom": "You are already in a room. Please leave first",
+      "joining": "Joining Listen Together room...",
+      "joinSuccess": "Successfully joined Listen Together room",
+      "joinFailed": "Failed to join Listen Together room"
+    },
+    "page": {
+      "title": "Listen Together",
+      "subtitle": "Sync music with friends",
+      "hint": "Create or join a room to start listening together",
+      "members": "Members",
+      "host": "Host",
+      "kick": "Kick",
+      "blacklist": "Blacklist",
+      "chat": "Chat",
+      "noMessages": "No messages yet, say something~",
+      "chatPlaceholder": "Type a message...",
+      "send": "Send",
+      "kickSuccess": "Member kicked",
+      "kickFailed": "Failed to kick member",
+      "blacklistSuccess": "Member blacklisted",
+      "blacklistFailed": "Failed to blacklist member"
     }
   }
 }

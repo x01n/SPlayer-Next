@@ -17,6 +17,7 @@ import { registerExternalApiIpc } from "./externalApi";
 import { registerStatsIpc } from "./stats";
 import { registerUpdateIpc } from "./update";
 import { registerCloudIpc } from "./cloud";
+import { registerListenTogetherIpc } from "./listenTogether";
 
 /** 注册所有 IPC 处理 */
 export const registerIpcHandlers = (): void => {
@@ -39,4 +40,5 @@ export const registerIpcHandlers = (): void => {
   registerExternalApiIpc();
   registerStatsIpc();
   registerUpdateIpc();
+  registerListenTogetherIpc();
 };

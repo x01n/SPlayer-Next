@@ -5,19 +5,22 @@
  *   - 连接建立：`{ kind: "hello", clients: N }`
  *   - player 事件：`{ kind: "event", type, data }`（由 wsBroadcast 推）
  *   - 命令 ack：`{ kind: "ack", op }` / `{ kind: "error", op, error }`
+ *   - 一起听事件：`{ kind: "joined" | "sync" | "chat" | ... , data }`
  *
- * Client → Server：`{ op: "play" | "pause" | "stop" | "next" | "prev" | "seek" | "setVolume", ... }`
+ * Client → Server：`{ op: "play" | "pause" | "stop" | "next" | "prev" | "seek" | "setVolume" | "join" | "leave" | "sync" | "propose" | "vote" | "chat" | ... , ... }`
  */
 
 import type { WSContext } from "hono/ws";
 import { serverLog } from "@main/utils/logger";
 import { playerControl } from "@main/services/playerControl";
 import { addWsClient, removeWsClient, getWsClientCount } from "./broadcast";
+import { handleListenTogetherMessage, handleListenTogetherClose } from "./listenTogether";
 
 interface ClientMessage {
   op: string;
   positionMs?: number;
   volume?: number;
+  payload?: unknown;
 }
 
 const ack = (ws: WSContext, op: string): void => {
@@ -30,6 +33,15 @@ const fail = (ws: WSContext, op: string, error: string): void => {
 
 const dispatchCommand = async (ws: WSContext, msg: ClientMessage): Promise<void> => {
   try {
+    // 一起听操作优先处理
+    const listenTogetherOps = new Set([
+      "join", "leave", "sync", "propose", "vote", "chat", "chunkAck", "heartbeat",
+    ]);
+    if (listenTogetherOps.has(msg.op)) {
+      await handleListenTogetherMessage(ws, msg as Parameters<typeof handleListenTogetherMessage>[1]);
+      return;
+    }
+
     switch (msg.op) {
       case "play":
         playerControl.play();
@@ -86,9 +98,11 @@ export const wsHandlers = {
   },
   onClose(_evt: CloseEvent, ws: WSContext) {
     removeWsClient(ws);
+    handleListenTogetherClose(ws);
   },
   onError(_evt: Event, ws: WSContext) {
     serverLog.warn("WS 客户端错误");
     removeWsClient(ws);
+    handleListenTogetherClose(ws);
   },
 };

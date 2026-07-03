@@ -10,7 +10,7 @@ import { WebSocketServer } from "ws";
 import { store } from "@main/store";
 import { serverLog } from "@main/utils/logger";
 import type { ExternalApiStatus } from "@shared/types/settings";
-import { externalControlGate, wsGate } from "./gate";
+import { externalControlGate, wsGate, apiKeyGate } from "./gate";
 import { buildRoutes } from "./routes";
 import { wsHandlers } from "./ws";
 
@@ -66,7 +66,7 @@ export const startServer = (): Promise<ExternalApiStatus> => {
     const hostname = store.get("externalApi.allowLan") ? "0.0.0.0" : "127.0.0.1";
 
     const app = new Hono();
-    app.use("/api/*", externalControlGate);
+    app.use("/api/*", externalControlGate, apiKeyGate);
     app.route("/api", buildRoutes());
     app.get(
       "/ws",

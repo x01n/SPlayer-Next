@@ -5,7 +5,7 @@ import { DYNAMIC_ISLAND_BASE_HEIGHT } from "@shared/defaults/settings";
 import DEFAULT_COVER from "@/assets/images/song.jpg";
 import IslandLyricLine from "./components/IslandLyricLine.vue";
 import { pickAdvanceOnEndIndex } from "@shared/utils/lyricSync";
-import { useNowPlayingSync } from "@windows/shared/composables/useNowPlayingSync";
+import { useNowPlayingSync, getNowPlayingCurrentMs } from "@windows/shared/composables/useNowPlayingSync";
 import { useDragWindow } from "./composables/useDragWindow";
 import { isMac } from "@/utils/config";
 
@@ -91,11 +91,21 @@ const artistsText = computed<string>(
   () => track.value?.artists?.map((a) => a.name).join(" / ") ?? "",
 );
 
+/** 检测是否为纯音乐占位歌词 */
+const isInstrumentalPlaceholder = (line: LyricLine | null): boolean => {
+  if (!line) return false;
+  const text = line.words.map((w) => w.word).join("").trim();
+  const instrumentalTexts = ["纯音乐", "instrumental", "无歌词", "no lyrics"];
+  return instrumentalTexts.includes(text.toLowerCase());
+};
+
 /* 当前行 */
 const currentLine = computed<LyricLine | null>(() => {
   const idx = primaryIndex.value;
   if (idx < 0) return null;
-  return lyric.value[idx] ?? null;
+  const line = lyric.value[idx] ?? null;
+  if (isInstrumentalPlaceholder(line)) return null;
+  return line;
 });
 
 /* 备用文本 */
@@ -436,6 +446,7 @@ const rootStyle = computed(() => ({
   "--di-fusion-content-width": `${Math.max(1, shapeWidth.value - SHAPE_SIDE_OVERHANG * 2)}px`,
   "--di-snap-radius": `${snapRadius.value}px`,
   "--di-lyric-scale": lyricScale.value,
+  "--di-progress": `${progressDeg.value}deg`,
   "--di-glow": config.glowEffect
     ? `0 0 ${Math.round(6 + config.glowIntensity * 20)}px ${config.glowColor}, 0 0 ${Math.round(3 + config.glowIntensity * 10)}px ${config.glowColor}`
     : "none",
@@ -453,6 +464,33 @@ const syncViewportSize = (): void => {
   viewportHeight.value = Math.max(NOTCH_HEIGHT, window.innerHeight || NOTCH_HEIGHT);
   if (!notchFusionEnabled.value) {
     animatedShapeWidth.value = viewportWidth.value;
+  }
+};
+
+/* 进度环 */
+const progressDeg = ref(0);
+let progressRafId = 0;
+
+const updateProgressBorder = (): void => {
+  const dur = track.value?.duration;
+  if (!dur || dur <= 0) {
+    progressDeg.value = 0;
+  } else {
+    progressDeg.value = Math.min(360, Math.max(0, (getNowPlayingCurrentMs() / dur) * 360));
+  }
+  progressRafId = requestAnimationFrame(updateProgressBorder);
+};
+
+const startProgressLoop = (): void => {
+  if (progressRafId === 0) {
+    progressRafId = requestAnimationFrame(updateProgressBorder);
+  }
+};
+
+const stopProgressLoop = (): void => {
+  if (progressRafId !== 0) {
+    cancelAnimationFrame(progressRafId);
+    progressRafId = 0;
   }
 };
 
@@ -513,10 +551,12 @@ onMounted(async () => {
   unsubCursor = window.api.dynamicIsland.onCursorInside((inside) => {
     hovering.value = inside;
   });
+  startProgressLoop();
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", syncViewportSize);
+  stopProgressLoop();
   if (pendingWindowShrinkTimer !== null) {
     window.clearTimeout(pendingWindowShrinkTimer);
     pendingWindowShrinkTimer = null;
@@ -552,6 +592,8 @@ onBeforeUnmount(() => {
     >
       <path :d="notchPath" fill="var(--di-bg)" />
     </svg>
+    <div class="progress-border" aria-hidden="true" />
+    <div class="progress-glow" aria-hidden="true" />
     <div class="content">
       <div v-if="config.showCover && coverSize > 0" class="cover">
         <img
@@ -628,6 +670,57 @@ onBeforeUnmount(() => {
   border-radius: 0;
 }
 .root.is-floating {
+  background: var(--di-bg);
+  border-radius: 999px;
+}
+.progress-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2.5px;
+  background: conic-gradient(
+    from 0deg,
+    var(--di-played) var(--di-progress),
+    var(--di-unplayed) var(--di-progress)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+  transition: background 0.15s linear;
+  filter: drop-shadow(0 0 4px var(--di-played));
+}
+.progress-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2.5px;
+  background: conic-gradient(
+    from 0deg,
+    var(--di-played) var(--di-progress),
+    transparent var(--di-progress)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  filter: blur(3px);
+  opacity: 0.6;
+  transition: background 0.15s linear;
+  animation: progressGlow 2s ease-in-out infinite;
+}
+
+@keyframes progressGlow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+}
+.notch-shape {
   background: var(--di-bg);
   border-radius: 999px;
 }

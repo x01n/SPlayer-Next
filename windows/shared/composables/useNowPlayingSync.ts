@@ -5,7 +5,9 @@ import type { Track } from "@shared/types/player";
 import { clampLastLineEnd } from "@shared/utils/lyricSync";
 
 /** 同步偏差阈值 */
-const SYNC_DRIFT_THRESHOLD = 300;
+const SYNC_DRIFT_THRESHOLD = 200;
+/** 最大允许无同步插值时长（ms），超过则停止插值防止卡顿期间歌词超前 */
+const MAX_INTERPOLATION_MS = 800;
 
 /** 提供给逐字高亮的非响应式当前播放时间 */
 let currentNowPlayingMs = 0;
@@ -42,6 +44,8 @@ export const useNowPlayingSync = (options: NowPlayingSyncOptions): NowPlayingSyn
   let anchorPerf = 0;
   let anchorInitialized = false;
   let rafId: number | null = null;
+  /** 最近一次收到 position-sync 时的 performance.now() */
+  let lastSyncReceivePerf = 0;
   /** 当前曲目歌词偏移（ms，正值为歌词提前） */
   let lyricOffsetMs = 0;
   /** 当前播放速度倍率，插值时把墙钟时长换算到源时间 */
@@ -51,6 +55,7 @@ export const useNowPlayingSync = (options: NowPlayingSyncOptions): NowPlayingSyn
     const ipcDelay = Math.max(0, Date.now() - sendTimestamp);
     anchorPos = positionMs + (playing.value ? ipcDelay * speed : 0);
     anchorPerf = performance.now();
+    lastSyncReceivePerf = anchorPerf;
     // currentNowPlayingMs 始终是「叠加 offset 后的歌词时间」，与 syncOnce 保持一致
     currentNowPlayingMs = anchorPos + lyricOffsetMs;
     anchorInitialized = true;
@@ -78,6 +83,8 @@ export const useNowPlayingSync = (options: NowPlayingSyncOptions): NowPlayingSyn
     const projected = anchorPos + (performance.now() - anchorPerf) * speed;
     if (Math.abs(candidate - projected) > SYNC_DRIFT_THRESHOLD) {
       resetAnchor(positionMs, sendTimestamp);
+    } else {
+      lastSyncReceivePerf = performance.now();
     }
   };
 
@@ -93,7 +100,20 @@ export const useNowPlayingSync = (options: NowPlayingSyncOptions): NowPlayingSyn
   };
 
   const syncOnce = (): void => {
-    const next = playing.value ? anchorPos + (performance.now() - anchorPerf) * speed : anchorPos;
+    const now = performance.now();
+    const elapsedSinceSync = now - lastSyncReceivePerf;
+    let next: number;
+    if (playing.value) {
+      const elapsed = now - anchorPerf;
+      // 长时间未收到同步时停止插值，避免卡顿期间歌词持续超前
+      if (elapsedSinceSync > MAX_INTERPOLATION_MS) {
+        next = anchorPos + Math.min(elapsed, MAX_INTERPOLATION_MS) * speed;
+      } else {
+        next = anchorPos + elapsed * speed;
+      }
+    } else {
+      next = anchorPos;
+    }
     currentNowPlayingMs = next + lyricOffsetMs;
     const idx = pickIndex(lyric.value, currentNowPlayingMs);
     if (idx !== primaryIndex.value) primaryIndex.value = idx;

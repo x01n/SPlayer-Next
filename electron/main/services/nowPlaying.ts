@@ -146,7 +146,8 @@ export const onSpeedChange = (speed: number): void => {
     playing,
     state: playState,
     speed: playSpeed,
-    sendTimestamp: lastPositionAt || Date.now(),
+    // 速度变化时 position 是旧值，用当前时间戳让接收端不额外补偿已过时间，避免换挡瞬间漂移
+    sendTimestamp: Date.now(),
   });
 };
 

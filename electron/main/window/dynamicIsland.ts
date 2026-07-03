@@ -4,7 +4,8 @@ import { is } from "@electron-toolkit/utils";
 import { createWindow } from "./create";
 import { store } from "@main/store";
 import { broadcast } from "@main/utils/broadcast";
-import { isMac, isLinux } from "@main/utils/config";
+import { isMac, isLinux, isNativeWayland } from "@main/utils/config";
+import { loadNativeModule } from "@main/utils/nativeLoader";
 import { setTrayDynamicIsland } from "@main/services/tray";
 import { isAppQuitting } from "@main/utils/lifecycle";
 import { DYNAMIC_ISLAND_BASE_HEIGHT } from "@shared/defaults/settings";
@@ -13,14 +14,85 @@ import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 
 let dynamicIslandWindow: BrowserWindow | null = null;
 
-/** 检测原生 Wayland 环境（非 XWayland） */
-const isNativeWayland = isLinux && !!process.env.WAYLAND_DISPLAY;
+/** X11 辅助模块（Linux X11 下懒加载，Wayland 下不使用） */
+let x11Helper: { setAlwaysOnTopX11: (wid: number, enable: boolean) => void; setIgnoreMouseEventsX11: (wid: number, ignore: boolean) => void; isX11: () => boolean } | null = null;
+
+const getX11Helper = () => {
+  if (!isLinux || x11Helper) return x11Helper;
+  x11Helper = loadNativeModule("x11-helper.node", "x11-helper");
+  return x11Helper;
+};
+
+/** 通过 X11 原生 API 强制设置置顶（Electron API 不生效时的备选） */
+const forceX11AlwaysOnTop = (enable: boolean): void => {
+  const helper = getX11Helper();
+  if (!helper || !dynamicIslandWindow) return;
+  try {
+    const handle = dynamicIslandWindow.getNativeWindowHandle();
+    let wid: number;
+    if (handle.length === 4) {
+      wid = handle.readUInt32LE(0);
+    } else if (handle.length === 8) {
+      wid = Number(handle.readBigUInt64LE(0));
+    } else {
+      return;
+    }
+    helper.setAlwaysOnTopX11(wid, enable);
+  } catch {
+    // X11 调用失败时静默忽略
+  }
+};
+
+/** 通过 X11 Shape 扩展强制设置鼠标穿透（Electron API 不生效时的备选） */
+const forceX11IgnoreMouseEvents = (ignore: boolean): void => {
+  const helper = getX11Helper();
+  if (!helper || !dynamicIslandWindow) return;
+  try {
+    const handle = dynamicIslandWindow.getNativeWindowHandle();
+    let wid: number;
+    if (handle.length === 4) {
+      wid = handle.readUInt32LE(0);
+    } else if (handle.length === 8) {
+      wid = Number(handle.readBigUInt64LE(0));
+    } else {
+      return;
+    }
+    helper.setIgnoreMouseEventsX11(wid, ignore);
+  } catch {
+    // XShape 调用失败时静默忽略
+  }
+};
 
 /** Electron 置顶层级，Linux 不支持 "overlay"，回退到 "screen-saver" */
 const ALWAYS_ON_TOP_LEVEL = (isLinux ? "screen-saver" : "overlay") as "screen-saver";
 
 /** KWin 脚本是否已加载 */
 let kwinScriptLoaded = false;
+
+/**
+ * 尝试使用可用的 qdbus 工具加载 KWin 脚本
+ * @param scriptPath - KWin 脚本文件路径
+ * @throws 当所有 qdbus 命令都失败时抛出错误
+ */
+const runKWinScriptCommand = (scriptPath: string): void => {
+  const commands = [
+    `qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`,
+    `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`,
+    `qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`,
+    `dbus-send --session --type=method_call --dest=org.kde.KWin --print-reply /Scripting org.kde.kwin.Scripting.loadScript string:"${scriptPath}"`,
+  ];
+  let lastError: Error | undefined;
+  for (const cmd of commands) {
+    try {
+      execSync(cmd, { timeout: 5000, stdio: "pipe" });
+      return;
+    } catch (error) {
+      lastError = error as Error;
+      console.error(`[dynamic-island] KWin script command failed: ${cmd}`, error);
+    }
+  }
+  throw lastError;
+};
 
 /**
  * 加载 KWin 脚本，用于在 KDE Plasma Wayland 下设置灵动岛窗口属性
@@ -33,27 +105,30 @@ const setupKWinScript = (): void => {
     const scriptPath = join(scriptDir, "splayer-dynamic-island.js");
     if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
 
+    const cfg = store.get("dynamicIsland");
+    const alwaysOnTop = cfg.alwaysOnTop;
+
     const scriptContent = `function init() {
   function setupWindow(w) {
     if (w.caption === "Dynamic Island") {
       w.skipTaskbar = true;
       w.noBorder = true;
+      w.keepAbove = ${alwaysOnTop};
+      print("SPlayer dynamic island setup: skipTaskbar=true, noBorder=true, keepAbove=" + ${alwaysOnTop});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) setupWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(setupWindow);
+  print("SPlayer dynamic island init script loaded, alwaysOnTop=${alwaysOnTop}");
 }`;
 
     writeFileSync(scriptPath, scriptContent, "utf-8");
-    execSync(`qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`, {
-      timeout: 5000,
-      stdio: "pipe",
-    });
+    runKWinScriptCommand(scriptPath);
     kwinScriptLoaded = true;
-  } catch {
-    // KWin 脚本加载失败时静默忽略
+  } catch (error) {
+    console.error("[dynamic-island] KWin setup script failed:", error);
   }
 };
 
@@ -68,17 +143,14 @@ const runKWinScript = (body: string): void => {
     const scriptPath = join(scriptDir, `splayer-kwin-${Date.now()}.js`);
     if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
     writeFileSync(scriptPath, `function init() { ${body} }`, "utf-8");
-    execSync(`qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}"`, {
-      timeout: 5000,
-      stdio: "pipe",
-    });
+    runKWinScriptCommand(scriptPath);
     try {
       unlinkSync(scriptPath);
     } catch {
       // 清理失败忽略
     }
-  } catch {
-    // 动态脚本执行失败时静默忽略
+  } catch (error) {
+    console.error("[dynamic-island] KWin dynamic script failed:", error);
   }
 };
 
@@ -233,6 +305,90 @@ const computeSnappedPos = (
 };
 
 /**
+ * 同步应用灵动岛的状态（置顶、非遮挡）
+ * 部分窗口管理器/桌面环境下，窗口映射完成前 setAlwaysOnTop 可能不生效，
+ * 延迟后再同步一次置顶状态，确保灵动岛始终保持在最上层
+ */
+const syncDynamicIslandState = (): void => {
+  if (!dynamicIslandWindow || dynamicIslandWindow.isDestroyed()) return;
+  const cfg = store.get("dynamicIsland");
+  dynamicIslandWindow.setAlwaysOnTop(cfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+  if (isLinux) {
+    dynamicIslandWindow.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, { visibleOnFullScreen: cfg.alwaysOnTop });
+  }
+  if (!isLinux && cfg.nonOcclusive) {
+    dynamicIslandWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  // 第一次延迟同步（500ms），覆盖 Linux 下 X11/Wayland 异步映射场景
+  setTimeout(() => {
+    if (!dynamicIslandWindow || dynamicIslandWindow.isDestroyed()) return;
+    const currentCfg = store.get("dynamicIsland");
+    dynamicIslandWindow.setAlwaysOnTop(currentCfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+    if (isLinux) {
+      dynamicIslandWindow.setVisibleOnAllWorkspaces(currentCfg.alwaysOnTop, {
+        visibleOnFullScreen: currentCfg.alwaysOnTop,
+      });
+      if (isNativeWayland) {
+        dynamicIslandWindow.setMovable(!currentCfg.nonOcclusive);
+        dynamicIslandWindow.setResizable(!currentCfg.nonOcclusive);
+        runKWinScript(
+          `function applyToWindow(w) {
+    if (w.caption === "Dynamic Island") {
+      w.keepAbove = ${currentCfg.alwaysOnTop};
+      print("SPlayer dynamic island keepAbove = " + ${currentCfg.alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer dynamic island sync script loaded, keepAbove = " + ${currentCfg.alwaysOnTop});`,
+        );
+      } else {
+        if (currentCfg.nonOcclusive) {
+          dynamicIslandWindow.setIgnoreMouseEvents(true);
+          forceX11IgnoreMouseEvents(true);
+        } else {
+          dynamicIslandWindow.setIgnoreMouseEvents(false);
+          forceX11IgnoreMouseEvents(false);
+        }
+        forceX11AlwaysOnTop(currentCfg.alwaysOnTop);
+      }
+    }
+  }, 500);
+
+  // 第二次延迟同步（1200ms），覆盖窗口管理器延迟映射场景
+  setTimeout(() => {
+    if (!dynamicIslandWindow || dynamicIslandWindow.isDestroyed()) return;
+    const currentCfg = store.get("dynamicIsland");
+    dynamicIslandWindow.setAlwaysOnTop(currentCfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
+    if (isLinux) {
+      dynamicIslandWindow.setVisibleOnAllWorkspaces(currentCfg.alwaysOnTop, {
+        visibleOnFullScreen: currentCfg.alwaysOnTop,
+      });
+      if (isNativeWayland) {
+        runKWinScript(
+          `function applyToWindow(w) {
+    if (w.caption === "Dynamic Island") {
+      w.keepAbove = ${currentCfg.alwaysOnTop};
+      print("SPlayer dynamic island keepAbove = " + ${currentCfg.alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer dynamic island sync script loaded, keepAbove = " + ${currentCfg.alwaysOnTop});`,
+        );
+      } else {
+        forceX11AlwaysOnTop(currentCfg.alwaysOnTop);
+      }
+    }
+  }, 1200);
+};
+
+/**
  * 应用窗口置顶
  * @param alwaysOnTop 是否置顶
  */
@@ -246,8 +402,38 @@ export const applyDynamicIslandAlwaysOnTop = (alwaysOnTop: boolean): void => {
     });
     if (isNativeWayland) {
       runKWinScript(
-        `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "Dynamic Island") { windows[i].keepAbove = ${alwaysOnTop}; } }`,
+        `function applyToWindow(w) {
+    if (w.caption === "Dynamic Island") {
+      w.keepAbove = ${alwaysOnTop};
+      print("SPlayer dynamic island keepAbove = " + ${alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer dynamic island apply script loaded, keepAbove = " + ${alwaysOnTop});`,
       );
+      // Wayland 下 KWin 脚本可能异步执行，延迟后再次尝试
+      setTimeout(() => {
+        runKWinScript(
+          `function applyToWindow(w) {
+    if (w.caption === "Dynamic Island") {
+      w.keepAbove = ${alwaysOnTop};
+      print("SPlayer dynamic island keepAbove retry = " + ${alwaysOnTop});
+    }
+  }
+  var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
+  var signal = workspace.windowAdded || workspace.clientAdded;
+  signal.connect(applyToWindow);
+  print("SPlayer dynamic island retry script loaded, keepAbove = " + ${alwaysOnTop});`,
+        );
+      }, 600);
+    } else {
+      forceX11AlwaysOnTop(alwaysOnTop);
+      // X11 MapWindow 异步，延迟后再强制一次
+      setTimeout(() => forceX11AlwaysOnTop(alwaysOnTop), 300);
     }
   }
 };
@@ -316,6 +502,14 @@ export const applyDynamicIslandNonOcclusive = (enabled: boolean): void => {
     setTimeout(() => win.setBounds(b), 0);
     win.setMovable(!enabled);
     win.setResizable(!enabled);
+  } else if (isLinux) {
+    win.setIgnoreMouseEvents(enabled);
+    forceX11IgnoreMouseEvents(enabled);
+    if (enabled) {
+      startCursorPolling();
+    } else {
+      stopCursorPolling();
+    }
   } else {
     win.setIgnoreMouseEvents(enabled, { forward: true });
     if (enabled) {
@@ -467,7 +661,7 @@ export const moveDynamicIslandWindow = (x: number, y: number): void => {
   broadcastMode(ty <= snapY ? "snapped" : "floating");
 };
 
-/** 当前广播过的吸附模式，用于跨阈值时去抖 */
+/** 当前广播过的吸附模式，用于跨阈值时去振 */
 let lastBroadcastMode: "snapped" | "floating" | null = null;
 
 /** 广播当前吸附模式；重复状态不重发 */
@@ -537,8 +731,11 @@ export const saveDynamicIslandState = (): void => {
 /** 创建灵动岛窗口，如果窗口已存在则显示并聚焦 */
 export const createDynamicIslandWindow = (): BrowserWindow => {
   if (isNativeWayland) setupKWinScript();
-  if (dynamicIslandWindow && !dynamicIslandWindow.isDestroyed()) {
+  const existing = BrowserWindow.getAllWindows().find(w => w.getTitle() === "Dynamic Island" && !w.isDestroyed());
+  if (existing) {
+    dynamicIslandWindow = existing;
     dynamicIslandWindow.show();
+    syncDynamicIslandState();
     dynamicIslandWindow.focus();
     return dynamicIslandWindow;
   }
@@ -608,7 +805,7 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
     roundedCorners: false,
     alwaysOnTop: config.alwaysOnTop,
     skipTaskbar: true,
-    focusable: !isLinux,
+    focusable: true,
     show: false,
     backgroundColor: "#00000000",
     webPreferences: {
@@ -636,42 +833,18 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
 
   dynamicIslandWindow.once("ready-to-show", () => {
     if (!dynamicIslandWindow) return;
+    const b = dynamicIslandWindow.getBounds();
+    cachedSize.width = b.width;
+    cachedSize.height = b.height;
     dynamicIslandWindow.show();
-    dynamicIslandWindow.setAlwaysOnTop(config.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
-    if (isLinux) {
-      dynamicIslandWindow.setVisibleOnAllWorkspaces(config.alwaysOnTop, {
-        visibleOnFullScreen: config.alwaysOnTop,
-      });
-      if (isNativeWayland) {
-        runKWinScript(
-          `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "Dynamic Island") { windows[i].keepAbove = ${config.alwaysOnTop}; windows[i].skipTaskbar = true; windows[i].noBorder = true; } }`,
-        );
-      }
-    }
-    if (config.nonOcclusive) {
-      if (isNativeWayland) {
-        dynamicIslandWindow.setMovable(false);
-        dynamicIslandWindow.setResizable(false);
-      } else {
-        dynamicIslandWindow.setIgnoreMouseEvents(true, { forward: true });
-        startCursorPolling();
-      }
+    syncDynamicIslandState();
+    if (config.nonOcclusive && !isNativeWayland) {
+      startCursorPolling();
     }
   });
 
   dynamicIslandWindow.on("show", () => {
-    const cfg = store.get("dynamicIsland");
-    dynamicIslandWindow?.setAlwaysOnTop(cfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
-    if (isLinux) {
-      dynamicIslandWindow?.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, {
-        visibleOnFullScreen: cfg.alwaysOnTop,
-      });
-      if (isNativeWayland) {
-        runKWinScript(
-          `var windows = workspace.windowList ? workspace.windowList() : workspace.clientList(); for (var i = 0; i < windows.length; i++) { if (windows[i].caption === "Dynamic Island") { windows[i].keepAbove = ${cfg.alwaysOnTop}; } }`,
-        );
-      }
-    }
+    syncDynamicIslandState();
   });
 
   setTrayDynamicIsland(true);

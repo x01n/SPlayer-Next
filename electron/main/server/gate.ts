@@ -24,3 +24,20 @@ export const wsGate: MiddlewareHandler = async (c, next) => {
   await next();
   return;
 };
+
+/** API 密钥鉴权中间件：校验 X-API-Key 请求头或 api_key 查询参数 */
+export const apiKeyGate: MiddlewareHandler = async (c, next) => {
+  const configuredKey = store.get("externalApi.apiKey");
+  // 未配置密钥时放行（向后兼容）
+  if (!configuredKey) {
+    await next();
+    return;
+  }
+  const providedKey =
+    c.req.header("X-API-Key") ?? c.req.query("api_key") ?? "";
+  if (providedKey !== configuredKey) {
+    return c.json({ error: "invalid API key" }, 403);
+  }
+  await next();
+  return;
+};

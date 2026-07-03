@@ -9,6 +9,7 @@ import { getPlayer } from "@main/services/engine";
 import { toMs } from "@main/utils/time";
 import * as nowPlaying from "@main/services/nowPlaying";
 import { playerControl } from "@main/services/playerControl";
+import { store } from "@main/store";
 import { getWsClientCount } from "./broadcast";
 
 export const buildRoutes = (): Hono => {
@@ -84,6 +85,86 @@ export const buildRoutes = (): Hono => {
   api.post("/prev", (c) => {
     playerControl.prev();
     return c.json({ ok: true });
+  });
+
+  // 一起听路由
+  api.post("/listen-together/rooms", async (c) => {
+    const { isListenTogetherEnabled, createRoom } = await import("./listenTogether/room");
+    if (!isListenTogetherEnabled()) {
+      return c.json({ error: "一起听功能未启用" }, 403);
+    }
+
+    const body = (await c.req.json().catch(() => null)) as {
+      nickname?: string;
+      neteaseUserId?: number;
+      authKey?: string;
+    } | null;
+
+    if (!body?.nickname) {
+      return c.json({ error: "nickname required" }, 400);
+    }
+
+    // 校验一起听鉴权密钥
+    const configuredAuthKey = store.get("listenTogether.authKey");
+    if (configuredAuthKey && body.authKey !== configuredAuthKey) {
+      return c.json({ error: "invalid authKey" }, 403);
+    }
+
+    const room = createRoom(body.nickname, body.neteaseUserId);
+    return c.json({
+      ok: true,
+      room: {
+        id: room.id,
+        name: room.name,
+        hostId: room.hostId,
+        members: room.members,
+        state: room.state,
+        createdAt: room.createdAt,
+      },
+      roomKey: room.roomKey,
+    });
+  });
+
+  api.get("/listen-together/rooms/:roomId", async (c) => {
+    const { getRoom } = await import("./listenTogether/room");
+    const roomId = c.req.param("roomId");
+    const room = getRoom(roomId);
+    if (!room) return c.json({ error: "房间不存在" }, 404);
+
+    return c.json({
+      id: room.id,
+      name: room.name,
+      hostId: room.hostId,
+      memberCount: room.members.length,
+      state: room.state,
+      currentTrack: room.currentTrack,
+      createdAt: room.createdAt,
+    });
+  });
+
+  api.post("/listen-together/rooms/:roomId/join", async (c) => {
+    const { joinRoom } = await import("./listenTogether/room");
+    const roomId = c.req.param("roomId");
+    const body = (await c.req.json().catch(() => null)) as {
+      roomKey?: string;
+      nickname?: string;
+      neteaseUserId?: number;
+    } | null;
+
+    if (!body?.roomKey || !body?.nickname) {
+      return c.json({ error: "roomKey and nickname required" }, 400);
+    }
+
+    const result = joinRoom(roomId, body.roomKey, body.nickname, body.neteaseUserId);
+    if (!result.ok) {
+      return c.json({ error: result.error }, 403);
+    }
+
+    return c.json({
+      ok: true,
+      token: result.token,
+      room: result.room,
+    });
   });
 
   return api;

@@ -24,6 +24,7 @@ import IconLucideCloud from "~icons/lucide/cloud";
 import IconLucidePlus from "~icons/lucide/plus";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconSpHeartMode from "~icons/sp/heart-mode";
+import IconLucideUsers from "~icons/lucide/users";
 import SButton from "@/components/ui/SButton.vue";
 import SPopselect from "@/components/ui/SPopselect.vue";
 
@@ -198,6 +199,11 @@ const menuItems = computed<SMenuItem[]>(() => [
         { key: "/streaming", label: t("nav.streaming"), icon: markRaw(IconLucideServer) },
       ] satisfies SMenuItem[])
     : []),
+  ...(systemSettings.listenTogether?.enabled
+    ? ([
+        { key: "/listen-together", label: t("nav.listenTogether"), icon: markRaw(IconLucideUsers) },
+      ] satisfies SMenuItem[])
+    : []),
   { key: "/history", label: t("nav.history"), icon: markRaw(IconLucideHistory) },
   // 我的歌单
   { key: "divider-playlist", type: "divider" },
@@ -218,6 +224,8 @@ const activeKey = computed(() => {
   if (route.path.startsWith("/streaming")) return "/streaming";
   if (route.path.startsWith("/collection/streaming/")) return "/streaming";
   if (route.path.startsWith("/artist/streaming/")) return "/streaming";
+  // 一起听
+  if (route.path.startsWith("/listen-together")) return "/listen-together";
   // 专辑详情页归属专辑列表
   if (route.path.startsWith("/collection/local/album/")) return "/albums/local";
   // 音乐库子页面

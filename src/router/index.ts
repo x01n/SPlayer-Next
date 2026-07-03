@@ -109,6 +109,11 @@ const router = createRouter({
             },
           ],
         },
+        {
+          path: "listen-together",
+          name: "listen-together",
+          component: () => import("@/pages/ListenTogether.vue"),
+        },
       ],
     },
   ],

@@ -178,6 +178,38 @@ const playerCategory: SettingCategory = {
           defaultValue: true,
         },
         {
+          key: "timeFormat",
+          type: "select",
+          binding: { store: "settings", path: "player.timeFormat" },
+          options: [
+            { value: "current-total", labelKey: "settings.timeFormat.currentTotal" },
+            { value: "remaining-total", labelKey: "settings.timeFormat.remainingTotal" },
+            { value: "current-remaining", labelKey: "settings.timeFormat.currentRemaining" },
+          ],
+          defaultValue: "current-total",
+          descriptionKey: "settings.timeFormat.description",
+        },
+        {
+          key: "showProgressTooltip",
+          type: "switch",
+          binding: { store: "settings", path: "player.showProgressTooltip" },
+          defaultValue: true,
+          children: [
+            {
+              key: "showProgressLyric",
+              type: "switch",
+              binding: { store: "settings", path: "player.showProgressLyric" },
+              defaultValue: false,
+            },
+          ],
+        },
+        {
+          key: "snapToLyric",
+          type: "switch",
+          binding: { store: "settings", path: "player.snapToLyric" },
+          defaultValue: false,
+        },
+        {
           key: "autoImmersive",
           type: "switch",
           binding: { store: "settings", path: "player.autoImmersive" },

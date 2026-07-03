@@ -12,6 +12,7 @@ import { getMainWindow, focusMainWindow } from "@main/window";
 import { fetchBytes } from "@main/utils/fetchBytes";
 import { logsDir } from "@main/utils/paths";
 import { consumePendingOrpheusUrl } from "@main/services/orpheus";
+import { consumePendingListenTogetherUrl } from "@main/services/listenTogetherProtocol";
 
 /**
  * 注册系统相关的 IPC 事件
@@ -21,6 +22,9 @@ export const registerSystemIpc = (): void => {
 
   // 渲染层拉取冷启动暂存的 orpheus 唤起 URL
   ipcMain.handle("system:consumePendingProtocolUrl", () => consumePendingOrpheusUrl());
+
+  // 渲染层拉取冷启动暂存的一起听唤起 URL
+  ipcMain.handle("system:consumePendingListenTogetherUrl", () => consumePendingListenTogetherUrl());
 
   // 切换开发者工具
   ipcMain.handle("system:toggleDevTools", () => {

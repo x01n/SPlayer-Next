@@ -83,7 +83,7 @@ export const defaultSystemConfig: SystemConfig = {
     playedColor: "rgba(255, 255, 255, 1)",
     unplayedColor: "rgba(255, 255, 255, 0.5)",
     backgroundColor: "rgba(0, 0, 0, 1)",
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     snapCentered: true,
     notchFusion: false,
     nonOcclusive: false,
@@ -145,6 +145,15 @@ export const defaultSystemConfig: SystemConfig = {
   streaming: {
     enabled: true,
   },
+  listenTogether: {
+    enabled: false,
+    authKey: "",
+    defaultRoomName: "一起听房间",
+    syncInterval: 8000,
+    voteTimeout: 5000,
+    chunkSize: 65536,
+    allowAnonymousChat: false,
+  },
   lastfm: {
     enabled: false,
     scrobble: true,
@@ -156,6 +165,7 @@ export const defaultSystemConfig: SystemConfig = {
     wsEnabled: false,
     allowLan: false,
     port: 14558,
+    apiKey: "",
   },
   update: {
     autoCheck: true,
