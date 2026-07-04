@@ -18,6 +18,7 @@ import { registerStatsIpc } from "./stats";
 import { registerUpdateIpc } from "./update";
 import { registerCloudIpc } from "./cloud";
 import { registerListenTogetherIpc } from "./listenTogether";
+import { registerCommentsIpc } from "./comments";
 
 /** 注册所有 IPC 处理 */
 export const registerIpcHandlers = (): void => {
@@ -30,6 +31,7 @@ export const registerIpcHandlers = (): void => {
   registerPluginIpc();
   registerApisIpc();
   registerCloudIpc();
+  registerCommentsIpc();
   registerLyricsIpc();
   registerHotkeyIpc();
   registerThemeIpc();

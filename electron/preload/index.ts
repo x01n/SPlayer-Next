@@ -17,6 +17,7 @@ import type { PlayEventInput, FavoriteEventInput } from "@shared/types/stats";
 import type { TagEditRequest } from "@shared/types/tagEditor";
 import type { UpdateEvent } from "@shared/types/update";
 import type { CloudUploadProgress } from "@shared/types/cloudUpload";
+import type { MusicCommentQuery } from "@shared/types/comment";
 
 /** 订阅主进程推送的事件 */
 const subscribe = <T>(channel: string, callback: (data: T) => void): (() => void) => {
@@ -255,6 +256,10 @@ const api = {
       ipcRenderer.invoke("lyrics:fetchTTMLOverlay", track, platform),
     matchLocalTTML: (track: unknown) => ipcRenderer.invoke("lyrics:matchLocalTTML", track),
     pickLyricRepoDir: () => ipcRenderer.invoke("lyrics:pickLyricRepoDir"),
+  },
+  comments: {
+    sources: () => ipcRenderer.invoke("comments:sources"),
+    get: (args: MusicCommentQuery) => ipcRenderer.invoke("comments:get", args),
   },
   download: {
     start: (req: unknown) => ipcRenderer.invoke("download:start", req),

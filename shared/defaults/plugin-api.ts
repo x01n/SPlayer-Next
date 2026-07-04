@@ -10,6 +10,7 @@ export const ACTION_TIMEOUTS = {
   musicSearch: 15_000,
   musicLyric: 15_000,
   musicPic: 15_000,
+  musicComment: 15_000,
 } as const;
 
 /** 网络请求最大超时 */
