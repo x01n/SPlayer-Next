@@ -5,6 +5,11 @@ import { isExternalUrl, openExternal } from "@/utils/url";
 import IconGlobe from "~icons/lucide/globe";
 import IconGamepad from "~icons/lucide/gamepad-2";
 import IconMenu from "~icons/lucide/menu";
+import IconBell from "~icons/lucide/bell";
+import IconClipboard from "~icons/lucide/clipboard";
+import IconMonitor from "~icons/lucide/monitor";
+import IconFolderOpen from "~icons/lucide/folder-open";
+import IconAppWindow from "~icons/lucide/app-window";
 
 const props = defineProps<{ open: boolean; info: PluginInfo | null }>();
 const emit = defineEmits<{
@@ -18,6 +23,11 @@ const GRANT_ICONS: Record<PluginGrant, Component> = {
   network: IconGlobe,
   control: IconGamepad,
   ui: IconMenu,
+  notification: IconBell,
+  clipboard: IconClipboard,
+  system: IconMonitor,
+  dialog: IconFolderOpen,
+  webview: IconAppWindow,
 };
 
 /** ready 时的状态对象（含 sources/events/controls/settings/ui） */

@@ -101,6 +101,8 @@ interface PluginContextRecord {
   playerEventHandlers: Map<string, ((data: unknown) => void)[]>;
   /** 设置变化回调表，key = setting key */
   settingChangeHandlers: Map<string, ((value: unknown) => void)[]>;
+  /** 面板消息回调表，key = panelId */
+  panelMessageHandlers: Map<string, ((message: unknown) => void)[]>;
   /** 已注册 sources */
   registeredSources: Record<string, SourceCapability>;
   /** 在途 action 的 AbortController，key = requestId */
@@ -198,7 +200,7 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
       record.registeredSources = { ...record.registeredSources, ...args.sources };
       send({ kind: "sourcesUpdate", pluginId: record.pluginId, sources: record.registeredSources });
     }
-    if (args.events || args.controls !== undefined || args.settings || args.menus) {
+    if (args.events || args.controls !== undefined || args.settings || args.menus || args.panels) {
       if (Array.isArray(args.settings)) {
         for (const item of args.settings) {
           if (!(item.key in record.userSettingsCache)) {
@@ -213,6 +215,7 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
         controls: Boolean(args.controls),
         settings: Array.isArray(args.settings) ? args.settings : [],
         menus: Array.isArray(args.menus) ? args.menus : [],
+        panels: Array.isArray(args.panels) ? args.panels : [],
       });
     }
   },
@@ -287,6 +290,60 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
     const list = record.settingChangeHandlers.get(key) ?? [];
     list.push(handler);
     record.settingChangeHandlers.set(key, list);
+  },
+
+  notification: {
+    show: (opts: { title: string; body?: string; icon?: string; silent?: boolean }) =>
+      hostCall(record, "notification.show", [opts]) as Promise<void>,
+  },
+
+  clipboard: {
+    writeText: (text: string) => hostCall(record, "clipboard.writeText", [text]) as Promise<void>,
+    readText: () => hostCall(record, "clipboard.readText", []) as Promise<string>,
+  },
+
+  system: {
+    openExternal: (url: string) =>
+      hostCall(record, "system.openExternal", [url]) as Promise<void>,
+    openPath: (path: string) => hostCall(record, "system.openPath", [path]) as Promise<void>,
+  },
+
+  dialog: {
+    showOpenDialog: (opts?: {
+      title?: string;
+      defaultPath?: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+      properties?: string[];
+    }) =>
+      hostCall(record, "dialog.showOpenDialog", [opts]) as Promise<{
+        canceled: boolean;
+        filePaths: string[];
+      }>,
+    showSaveDialog: (opts?: {
+      title?: string;
+      defaultPath?: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }) =>
+      hostCall(record, "dialog.showSaveDialog", [opts]) as Promise<{
+        canceled: boolean;
+        filePath?: string;
+      }>,
+  },
+
+  panel: {
+    show: (panelId: string, html?: string, css?: string, js?: string) =>
+      hostCall(record, "panel.show", [panelId, html ?? "", css ?? "", js ?? ""]) as Promise<void>,
+    hide: (panelId: string) =>
+      hostCall(record, "panel.hide", [panelId]) as Promise<void>,
+    close: (panelId: string) =>
+      hostCall(record, "panel.close", [panelId]) as Promise<void>,
+    postMessage: (panelId: string, message: unknown) =>
+      hostCall(record, "panel.postMessage", [panelId, message]) as Promise<void>,
+    onMessage: (panelId: string, handler: (message: unknown) => void) => {
+      const list = record.panelMessageHandlers.get(panelId) ?? [];
+      list.push(handler);
+      record.panelMessageHandlers.set(panelId, list);
+    },
   },
 });
 
@@ -380,6 +437,7 @@ const disposeRecord = (record: PluginContextRecord): void => {
   record.handlers.clear();
   record.playerEventHandlers.clear();
   record.settingChangeHandlers.clear();
+  record.panelMessageHandlers.clear();
 };
 
 /** 卸载插件：dispose 记录并从表中移除（vm 上下文随引用释放被 GC 回收） */
@@ -399,6 +457,7 @@ const loadPluginIntoContext = (spec: LoadSpec): void => {
     handlers: new Map(),
     playerEventHandlers: new Map(),
     settingChangeHandlers: new Map(),
+    panelMessageHandlers: new Map(),
     registeredSources: {},
     inflight: new Map(),
     hostCallWaiters: new Map(),
@@ -517,6 +576,21 @@ parentPort.on("message", async (event) => {
           for (const handler of handlers) {
             try {
               handler(msg.data);
+            } catch {
+              // 隔离插件回调异常
+            }
+          }
+        }
+        return;
+      }
+      case "panelMessage": {
+        const record = plugins.get(msg.pluginId);
+        if (!record) return;
+        const handlers = record.panelMessageHandlers.get(msg.panelId);
+        if (handlers) {
+          for (const handler of handlers) {
+            try {
+              handler(msg.message);
             } catch {
               // 隔离插件回调异常
             }

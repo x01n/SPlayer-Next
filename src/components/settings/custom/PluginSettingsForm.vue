@@ -50,6 +50,37 @@ const valueOf = (item: PluginSettingItem): unknown => props.values[item.key] ?? 
           class="w-full"
           @update:model-value="(val) => emit('change', item.key, val)"
         />
+        <SInput
+          v-else-if="item.type === 'textarea'"
+          type="textarea"
+          :model-value="String(valueOf(item) ?? '')"
+          :placeholder="item.placeholder"
+          :rows="item.rows ?? 3"
+          class="w-full"
+          @update:model-value="(val) => emit('change', item.key, val)"
+        />
+        <SInput
+          v-else-if="item.type === 'password'"
+          type="password"
+          :model-value="String(valueOf(item) ?? '')"
+          :placeholder="item.placeholder"
+          class="w-full"
+          @update:model-value="(val) => emit('change', item.key, val)"
+        />
+        <SColor
+          v-else-if="item.type === 'color'"
+          :model-value="String(valueOf(item) ?? 'rgb(0, 0, 0)')"
+          @update:model-value="(val) => emit('change', item.key, val)"
+        />
+        <SSlider
+          v-else-if="item.type === 'slider'"
+          :model-value="Number(valueOf(item) ?? 0)"
+          :min="item.min ?? 0"
+          :max="item.max ?? 100"
+          :step="item.step ?? 1"
+          class="w-full"
+          @update:model-value="(val) => emit('change', item.key, val)"
+        />
         <SSelect
           v-else-if="item.type === 'select'"
           :model-value="(valueOf(item) ?? '') as string"

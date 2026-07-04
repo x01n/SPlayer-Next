@@ -18,6 +18,7 @@ import type {
   PluginInfo,
   PluginManifest,
   PluginMenuItem,
+  PluginPanelItem,
   PluginSettingItem,
   PluginStatus,
   PluginUpdateInfo,
@@ -32,6 +33,7 @@ import { loadScript } from "./loader";
 import { dispatchHostCall } from "./host";
 import { pluginStorageDrop } from "./storage";
 import { fetchScript } from "./net";
+import { panelManager } from "./panel";
 
 const pluginsRoot = (): string => pluginsDir;
 const scriptsDir = (): string => path.join(pluginsRoot(), "scripts");
@@ -106,6 +108,8 @@ interface PluginRuntime {
   settings: PluginSettingItem[];
   /** UI 类：已授予 ui 权限后接受的菜单项，否则为 [] */
   menus: PluginMenuItem[];
+  /** 面板类：声明的面板列表 */
+  panels: PluginPanelItem[];
   /** router 注册的 pending 调用 */
   pending: Map<
     string,
@@ -178,6 +182,7 @@ class PluginRegistry extends EventEmitter {
         controls: false,
         settings: [],
         menus: [],
+        panels: [],
         pending: new Map(),
       });
     }
@@ -268,6 +273,7 @@ class PluginRegistry extends EventEmitter {
       controls: false,
       settings: [],
       menus: [],
+      panels: [],
       pending: new Map(),
     };
     this.runtimes.set(manifest.id, rt);
@@ -378,6 +384,7 @@ class PluginRegistry extends EventEmitter {
     rt.controls = false;
     rt.settings = [];
     rt.menus = [];
+    rt.panels = [];
 
     if (rt.enabled) await this.start(rt).catch(() => {});
     else this.setStatus(rt, { state: "disabled" });
@@ -468,7 +475,7 @@ class PluginRegistry extends EventEmitter {
       onReady: (sources) => {
         this.hostRestartAttempts = 0; // host 成功带起插件 → 重置 host 重启计数
         // 控制类同步 register 时 registered 先于 ready 到达，ready 必须保留已登记的
-        // events/controls/settings/menus，否则会覆盖掉控制信息、导致设置表单不渲染
+        // events/controls/settings/menus/panels，否则会覆盖掉控制信息、导致设置表单不渲染
         this.setStatus(rt, {
           state: "ready",
           sources,
@@ -476,6 +483,7 @@ class PluginRegistry extends EventEmitter {
           controls: rt.controls,
           settings: rt.settings,
           menus: rt.menus,
+          panels: rt.panels,
         });
         this.maybePrimeControl(rt);
       },
@@ -507,19 +515,24 @@ class PluginRegistry extends EventEmitter {
         const merged = { ...rt.status.sources, ...sources };
         this.setStatus(rt, { ...rt.status, sources: merged });
       },
-      onRegistered: ({ events, controls, settings, menus: declaredMenus }) => {
+      onRegistered: ({ events, controls, settings, menus: declaredMenus, panels: declaredPanels }) => {
         const menus = rt.manifest.grant.includes("ui") ? declaredMenus : [];
         if (declaredMenus.length && !menus.length) {
           coreLog.warn(`[plugin:${id}] 声明了菜单但缺少 "ui" 权限，已忽略`);
+        }
+        const panels = rt.manifest.grant.includes("webview") ? declaredPanels : [];
+        if (declaredPanels.length && !panels.length) {
+          coreLog.warn(`[plugin:${id}] 声明了面板但缺少 "webview" 权限，已忽略`);
         }
         rt.events = events;
         rt.controls = controls;
         rt.settings = settings;
         rt.menus = menus;
+        rt.panels = panels;
         if (rt.status.state === "ready") {
-          this.setStatus(rt, { ...rt.status, events, controls, settings, menus });
+          this.setStatus(rt, { ...rt.status, events, controls, settings, menus, panels });
         } else {
-          this.setStatus(rt, { state: "ready", sources: {}, events, controls, settings, menus });
+          this.setStatus(rt, { state: "ready", sources: {}, events, controls, settings, menus, panels });
         }
         this.maybePrimeControl(rt);
       },
@@ -580,7 +593,8 @@ class PluginRegistry extends EventEmitter {
 
   private async stop(rt: PluginRuntime): Promise<void> {
     rt.loading = false;
-    // 软卸载：dispose 该插件的 vm 上下文，host 进程与其它插件不受扰
+    // 软卸载：dispose 该插件的 vm 上下文，关闭其面板窗口
+    panelManager.closeAllForPlugin(rt.manifest.id);
     pluginHost.unloadPlugin(rt.manifest.id);
     this.rejectAllPending(rt, "plugin stopped", PluginErrorCodes.NOT_READY);
     this.setStatus(rt, { state: "unloaded" });
@@ -636,6 +650,36 @@ class PluginRegistry extends EventEmitter {
       if (rt.enabled && rt.manifest.type === "control" && rt.status.state === "ready") return true;
     }
     return false;
+  }
+
+  /** 是否存在已启用且 ready 的面板类插件 */
+  hasEnabledPanelPlugin(): boolean {
+    for (const rt of this.runtimes.values()) {
+      if (rt.enabled && rt.manifest.type === "panel" && rt.status.state === "ready") return true;
+    }
+    return false;
+  }
+
+  /**
+   * 获取所有已启用且 ready 的面板类插件的面板列表
+   */
+  listPanels(): Array<{ pluginId: string; pluginName: string; panels: PluginPanelItem[] }> {
+    const result: Array<{ pluginId: string; pluginName: string; panels: PluginPanelItem[] }> = [];
+    for (const rt of this.runtimes.values()) {
+      if (
+        rt.enabled &&
+        rt.manifest.type === "panel" &&
+        rt.status.state === "ready" &&
+        rt.panels.length > 0
+      ) {
+        result.push({
+          pluginId: rt.manifest.id,
+          pluginName: rt.manifest.name,
+          panels: rt.panels,
+        });
+      }
+    }
+    return result;
   }
 
   /**

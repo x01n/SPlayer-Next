@@ -11,6 +11,7 @@ import { callNetease, clearNeteaseCookies, mergeNeteaseCookies } from "@main/api
 import { cookieToJson } from "@main/apis/netease/core/cookie";
 import { callQQMusic } from "@main/apis/qqmusic";
 import { callKugou } from "@main/apis/kugou";
+import { callSpotify } from "@main/apis/spotify";
 import { openNeteaseLoginWindow } from "@main/window/login";
 import { coreLog } from "@main/utils/logger";
 import type { ApiPlatform } from "@shared/types/apis";
@@ -32,6 +33,10 @@ const dispatch = async (
     }
     case "kugou": {
       const data = await callKugou(name, params);
+      return { data };
+    }
+    case "spotify": {
+      const data = await callSpotify(name, params);
       return { data };
     }
     default:

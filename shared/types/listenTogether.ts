@@ -19,6 +19,16 @@ export interface ListenTogetherMember {
   lastActiveAt: number;
 }
 
+/** 一起听队列项 */
+export interface ListenTogetherQueueItem {
+  /** 歌曲信息 */
+  track: Track;
+  /** 添加者ID */
+  addedBy: string;
+  /** 添加时间戳 */
+  addedAt: number;
+}
+
 /** 一起听房间状态 */
 export type ListenTogetherRoomState = "waiting" | "playing" | "paused" | "closed";
 
@@ -46,6 +56,8 @@ export interface ListenTogetherRoom {
   controllerId: string | null;
   /** 加密密钥（用于签名操作） */
   cryptoKey: string;
+  /** 房间队列 */
+  queue: ListenTogetherQueueItem[];
 }
 
 /** 一起听聊天消息 */
@@ -58,10 +70,31 @@ export interface ListenTogetherChatMessage {
   senderNickname: string;
   /** 网易云用户ID */
   neteaseUserId?: number;
+  /** 头像URL */
+  avatarUrl?: string;
   /** 消息内容 */
   content: string;
   /** 发送时间戳 */
   timestamp: number;
+  /** 是否已撤回 */
+  isRecalled?: boolean;
+  /** 撤回时间戳 */
+  recalledAt?: number;
+  /** 撤回者ID */
+  recalledBy?: string;
+  /** 引用的消息 */
+  replyTo?: {
+    /** 被引用消息ID */
+    messageId: string;
+    /** 被引用发送者昵称 */
+    senderNickname: string;
+    /** 被引用内容 */
+    content: string;
+  };
+  /** 消息序列号（房间级别递增） */
+  seqId?: number;
+  /** @的成员ID列表 */
+  mentions?: string[];
 }
 
 /** 一起听播放同步状态 */
@@ -76,6 +109,59 @@ export interface ListenTogetherSyncState {
   sendTimestamp: number;
   /** 发送者ID */
   senderId: string;
+}
+
+/** 一起听队列操作类型 */
+export type ListenTogetherQueueAction = "add" | "remove" | "clear" | "reorder" | "move" | "set";
+
+/** 一起听搜索共享 */
+export interface ListenTogetherSearchShare {
+  /** 共享ID */
+  id: string;
+  /** 搜索平台 */
+  platform: string;
+  /** 搜索关键词 */
+  keyword: string;
+  /** 搜索结果 */
+  results: unknown;
+  /** 共享者ID */
+  sharedBy: string;
+  /** 共享者昵称 */
+  sharedByNickname: string;
+  /** 共享时间戳 */
+  sharedAt: number;
+}
+
+/** 一起听表情反应 */
+export interface ListenTogetherReaction {
+  /** 表情符号 */
+  emoji: string;
+  /** 发送者ID */
+  senderId: string;
+  /** 发送者昵称 */
+  senderNickname: string;
+  /** 发送时间戳 */
+  timestamp: number;
+}
+
+/** 一起听音源信息 */
+export interface ListenTogetherAudioSource {
+  /** 成员ID */
+  memberId: string;
+  /** 成员昵称 */
+  memberNickname: string;
+  /** 曲目ID */
+  trackId: string;
+  /** 音源类型：local / online / streaming */
+  sourceType: "local" | "online" | "streaming";
+  /** 所属平台（在线平台时） */
+  platform?: string;
+  /** 音质等级：hi-res / lossless / hq / sq / lq */
+  quality: string;
+  /** 是否有可直接播放的URL（本地文件为false） */
+  hasUrl: boolean;
+  /** 报告时间戳 */
+  reportedAt: number;
 }
 
 /** 一起听操作类型 */
@@ -153,7 +239,12 @@ export interface ListenTogetherClientMessage {
     | "chunkAck"
     | "heartbeat"
     | "kick"
-    | "blacklist";
+    | "blacklist"
+    | "queue"
+    | "searchShare"
+    | "reaction"
+    | "audioSource"
+    | "recall";
   /** 鉴权令牌 */
   token?: string;
   /** 房间ID */
@@ -182,7 +273,14 @@ export interface ListenTogetherServerMessage {
     | "kicked"
     | "blacklisted"
     | "onlineUrl"
-    | "event";
+    | "event"
+    | "queueUpdate"
+    | "searchShared"
+    | "reaction"
+    | "bestAudioSource"
+    | "audioSourceUpdate"
+    | "messageRecalled"
+    | "chatAck";
   /** 负载数据 */
   data?: unknown;
 }

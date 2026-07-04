@@ -7,6 +7,8 @@ import type {
   PluginInvokeMenuArgs,
   PluginMatchLyricArgs,
   PluginMatchCoverArgs,
+  PluginPanelShowArgs,
+  PluginPanelMessageArgs,
 } from "@shared/types/plugin";
 import type { HotkeyActionId, HotkeyBinding, HotkeyConflict } from "@shared/types/hotkey";
 import type { LoadOptions, TrackSource } from "@shared/types/player";
@@ -218,6 +220,16 @@ const api = {
     market: () => ipcRenderer.invoke("plugin:market"),
     onStatus: (callback: (info: PluginInfo) => void) =>
       subscribe<PluginInfo>("plugin:status", callback),
+    showPanel: (args: PluginPanelShowArgs) => ipcRenderer.invoke("plugin:showPanel", args),
+    hidePanel: (args: { pluginId: string; panelId: string }) =>
+      ipcRenderer.invoke("plugin:hidePanel", args),
+    closePanel: (args: { pluginId: string; panelId: string }) =>
+      ipcRenderer.invoke("plugin:closePanel", args),
+    postPanelMessage: (args: PluginPanelMessageArgs) =>
+      ipcRenderer.invoke("plugin:postPanelMessage", args),
+    listPanels: () => ipcRenderer.invoke("plugin:listPanels"),
+    onPanelMessage: (callback: (args: PluginPanelMessageArgs) => void) =>
+      subscribe<PluginPanelMessageArgs>("plugin:panel-message", callback),
   },
   apis: {
     call: (platform: string, name: string, params?: Record<string, unknown>) =>

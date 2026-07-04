@@ -23,13 +23,13 @@ export type PluginAction = "musicUrl" | "menuClick" | "musicSearch" | "musicLyri
 export type PluginQuality = "hi-res" | "lossless" | "hq" | "sq" | "lq";
 
 /** 插件类型清单：运行时校验与分类的唯一来源，新增类型只改这里 */
-export const PLUGIN_TYPES = ["source", "control"] as const;
-/** 插件类型：音源（解析 URL）/ 控制（监听状态 + 反向控制） */
+export const PLUGIN_TYPES = ["source", "control", "panel", "service"] as const;
+/** 插件类型：音源（解析 URL）/ 控制（监听状态 + 反向控制）/ 面板（WebUI）/ 服务（后台） */
 export type PluginType = (typeof PLUGIN_TYPES)[number];
 
 /** 插件可声明的权限清单 */
-export const PLUGIN_GRANTS = ["network", "control", "ui"] as const;
-/** 插件权限：network 联网 / control 控制播放器 / ui 扩展界面 */
+export const PLUGIN_GRANTS = ["network", "control", "ui", "notification", "clipboard", "system", "dialog", "webview"] as const;
+/** 插件权限：network 联网 / control 控制播放器 / ui 扩展界面 / notification 系统通知 / clipboard 剪贴板 / system 系统交互 / dialog 文件对话框 / webview 面板渲染 */
 export type PluginGrant = (typeof PLUGIN_GRANTS)[number];
 
 /** 控制类插件可订阅的高层播放事件 */
@@ -48,7 +48,7 @@ export interface PlaybackEventData {
 }
 
 /** 控制类插件注册的配置项类型（安全子集） */
-export type PluginSettingType = "switch" | "number" | "text" | "select";
+export type PluginSettingType = "switch" | "number" | "text" | "select" | "textarea" | "color" | "password" | "slider";
 
 /** 控制类插件注册的单个配置项 */
 export interface PluginSettingItem {
@@ -58,13 +58,16 @@ export interface PluginSettingItem {
   label: string;
   description?: string;
   default: boolean | number | string;
-  /** number 专用 */
+  /** number / slider 专用 */
   min?: number;
   max?: number;
-  /** text 专用 */
+  step?: number;
+  /** text / textarea / password 专用 */
   placeholder?: string;
   /** select 专用 */
   options?: { label: string; value: string }[];
+  /** textarea 专用 */
+  rows?: number;
 }
 
 /**
@@ -79,21 +82,40 @@ export interface PluginMenuItem {
   sources?: string[];
 }
 
-/** 控制/UI 类注册上报的载荷（worker → 主进程的 registered 消息与注册表回调共用） */
+/**
+ * 面板插件声明的单个面板
+ */
+export interface PluginPanelItem {
+  /** 面板唯一标识（插件内） */
+  id: string;
+  /** 面板标题 */
+  title: string;
+  /** 图标名称（Lucide 图标名，如 "music" / "settings"） */
+  icon?: string;
+  /** 面板尺寸 */
+  width?: number;
+  height?: number;
+  /** 是否允许调整大小 */
+  resizable?: boolean;
+}
+
+/** 控制/UI/面板类注册上报的载荷（worker → 主进程的 registered 消息与注册表回调共用） */
 export interface PluginRegistration {
   events: PlaybackEventKind[];
   controls: boolean;
   settings: PluginSettingItem[];
   menus: PluginMenuItem[];
+  panels: PluginPanelItem[];
 }
 
-/** register 入参：音源类用 sources，控制类用 events/controls/settings，UI 类用 menus */
+/** register 入参：音源类用 sources，控制类用 events/controls/settings，UI 类用 menus，面板类用 panels */
 export interface RegisterArgs {
   sources?: Record<string, SourceCapability>;
   events?: PlaybackEventKind[];
   controls?: boolean;
   settings?: PluginSettingItem[];
   menus?: PluginMenuItem[];
+  panels?: PluginPanelItem[];
 }
 
 /** 控制类插件可用的播放面 */
@@ -165,6 +187,8 @@ export type PluginStatus =
       settings?: PluginSettingItem[];
       /** UI 类贡献的菜单项 */
       menus?: PluginMenuItem[];
+      /** 面板类贡献的面板 */
+      panels?: PluginPanelItem[];
     }
   | { state: "error"; error: { code: string; message: string } }
   | { state: "disabled" };
@@ -319,6 +343,43 @@ export interface HostStorage {
   keys: () => Promise<string[]>;
 }
 
+  /** 系统通知选项 */
+export interface NotificationOptions {
+  title: string;
+  body?: string;
+  icon?: string;
+  silent?: boolean;
+}
+
+/** 剪贴板操作 */
+export interface ClipboardApi {
+  writeText: (text: string) => Promise<void>;
+  readText: () => Promise<string>;
+}
+
+/** 系统交互 */
+export interface SystemApi {
+  openExternal: (url: string) => Promise<void>;
+  openPath: (path: string) => Promise<void>;
+}
+
+/** 对话框选项 */
+export interface DialogOptions {
+  title?: string;
+  defaultPath?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+  properties?: string[];
+}
+
+/** 面板管理（需 @grant webview，仅 panel 类型插件可用） */
+export interface PanelApi {
+  show: (panelId: string, html?: string, css?: string, js?: string) => Promise<void>;
+  hide: (panelId: string) => Promise<void>;
+  close: (panelId: string) => Promise<void>;
+  postMessage: (panelId: string, message: unknown) => Promise<void>;
+  onMessage: (panelId: string, handler: (message: unknown) => void) => void;
+}
+
 /** 注入沙箱的全局对象形状 */
 export interface HostApi {
   readonly pluginId: string;
@@ -352,6 +413,26 @@ export interface HostApi {
 
   /** 控制类设置变更回调：用户改设置后触发 */
   onSettingChange: (key: string, handler: (value: unknown) => void) => void;
+
+  /** 系统通知（需 @grant notification） */
+  notification: {
+    show: (opts: NotificationOptions) => Promise<void>;
+  };
+
+  /** 剪贴板（需 @grant clipboard） */
+  clipboard: ClipboardApi;
+
+  /** 系统交互（需 @grant system） */
+  system: SystemApi;
+
+  /** 文件对话框（需 @grant dialog） */
+  dialog: {
+    showOpenDialog: (opts?: DialogOptions) => Promise<{ canceled: boolean; filePaths: string[] }>;
+    showSaveDialog: (opts?: DialogOptions) => Promise<{ canceled: boolean; filePath?: string }>;
+  };
+
+  /** 面板管理（需 @grant webview，仅 panel 类型插件可用） */
+  panel: PanelApi;
 }
 
 /* ========== 沙箱 ↔ 主进程消息协议 ========== */
@@ -396,6 +477,7 @@ export type SandboxIn =
     }
   | { kind: "ping" }
   | { kind: "event"; pluginId: string; event: PlaybackEventKind; data: unknown }
+  | { kind: "panelMessage"; pluginId: string; panelId: string; message: unknown }
   | { kind: "settingsUpdate"; pluginId: string; settings: Record<string, unknown> };
 
 /** 插件 host → 主 */
@@ -440,7 +522,19 @@ export type HostCallMethod =
   | "player.prev"
   | "player.seek"
   | "player.setVolume"
-  | "player.getPosition";
+  | "player.getPosition"
+  | "notification.show"
+  | "clipboard.writeText"
+  | "clipboard.readText"
+  | "system.openExternal"
+  | "system.openPath"
+  | "dialog.showOpenDialog"
+  | "dialog.showSaveDialog"
+  | "panel.show"
+  | "panel.hide"
+  | "panel.close"
+  | "panel.postMessage"
+  | "panel.onMessage";
 
 /* ========== 渲染端 ↔ 主进程的 IPC 请求参数 ========== */
 
@@ -507,6 +601,21 @@ export interface MarketPlugin {
   updateUrl: string;
 }
 
+/** 面板操作参数 */
+export interface PluginPanelShowArgs {
+  pluginId: string;
+  panelId: string;
+  html?: string;
+  css?: string;
+  js?: string;
+}
+
+export interface PluginPanelMessageArgs {
+  pluginId: string;
+  panelId: string;
+  message: unknown;
+}
+
 /** 渲染端插件 API */
 export interface PluginsApi {
   /** 列出所有已安装插件 */
@@ -561,6 +670,16 @@ export interface PluginsApi {
   market: () => Promise<{ ok: boolean; plugins: MarketPlugin[]; error?: string }>;
   /** 订阅插件状态变化 */
   onStatus: (cb: (info: PluginInfo) => void) => () => void;
+  /** 显示插件面板 */
+  showPanel: (args: PluginPanelShowArgs) => Promise<{ ok: boolean; error?: string }>;
+  /** 隐藏插件面板 */
+  hidePanel: (args: { pluginId: string; panelId: string }) => Promise<void>;
+  /** 关闭插件面板 */
+  closePanel: (args: { pluginId: string; panelId: string }) => Promise<void>;
+  /** 向插件面板发送消息 */
+  postPanelMessage: (args: PluginPanelMessageArgs) => Promise<void>;
+  /** 订阅插件面板消息 */
+  onPanelMessage: (cb: (args: PluginPanelMessageArgs) => void) => () => void;
 }
 
 /* ========== 配置 ========== */

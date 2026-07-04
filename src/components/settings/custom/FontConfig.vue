@@ -205,6 +205,7 @@ const handleSave = async (): Promise<void> => {
             multiple
             clearable
             virtual
+            allow-custom
             @update:model-value="handleChainChange(target.key, $event)"
           />
           <SInput

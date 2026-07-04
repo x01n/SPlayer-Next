@@ -9,10 +9,15 @@ import type {
   ListenTogetherRoom,
   ListenTogetherChatMessage,
   ListenTogetherActionProposal,
+  ListenTogetherQueueItem,
+  ListenTogetherSearchShare,
+  ListenTogetherReaction,
+  ListenTogetherAudioSource,
 } from "@shared/types/listenTogether";
 import type { Track } from "@shared/types/player";
 import { useMediaStore } from "@/stores/media";
 import { useStatusStore } from "@/stores/status";
+import { toast } from "@/composables/useToast";
 import * as lt from "@/services/listenTogether";
 import * as player from "@/core/player";
 import * as playback from "@/services/playback";
@@ -52,6 +57,16 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
   const onlineUrls = ref<Record<string, string>>({});
   /** 最后错误信息 */
   const lastError = ref<string | null>(null);
+  /** 房间队列 */
+  const queue = ref<ListenTogetherQueueItem[]>([]);
+  /** 搜索共享列表 */
+  const searchShares = ref<ListenTogetherSearchShare[]>([]);
+  /** 表情反应列表 */
+  const reactions = ref<ListenTogetherReaction[]>([]);
+  /** 房间内所有成员音源 */
+  const audioSources = ref<ListenTogetherAudioSource[]>([]);
+  /** 当前最优音源 */
+  const bestAudioSource = ref<ListenTogetherAudioSource | null>(null);
 
   /** 同步操作竞态 token */
   let syncToken = 0;
@@ -190,12 +205,22 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     console.log("[ListenTogether] 离开房间完成, 状态已重置");
   };
 
+  /** 撤回消息
+   * @param messageId - 消息ID
+   */
+  const recallMessage = async (messageId: string): Promise<void> => {
+    console.log(`[ListenTogether] 撤回消息: messageId=${messageId}`);
+    await lt.sendRecall(messageId);
+  };
+
   /** 发送聊天消息
    * @param content - 消息内容
+   * @param replyTo - 引用的消息（可选）
+   * @param mentions - @的成员ID列表（可选）
    */
-  const sendChat = async (content: string): Promise<void> => {
-    console.log(`[ListenTogether] 发送聊天消息: ${content}`);
-    await lt.sendChat(content);
+  const sendChat = async (content: string, replyTo?: ListenTogetherChatMessage["replyTo"], mentions?: string[]): Promise<void> => {
+    console.log(`[ListenTogether] 发送聊天消息: ${content}, replyTo=${replyTo?.messageId ?? "null"}, mentions=${mentions?.length ?? 0}`);
+    await lt.sendChat(content, replyTo, mentions);
   };
 
   /** 发送操作提案
@@ -239,11 +264,18 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       }
     });
 
+    // 若连接已就绪（connect 期间已触发过 onStateChange），同步补设 memberId
+    if (lt.getConnectionState() === "connected") {
+      memberId.value = lt.getMemberId() ?? "";
+      console.log(`[ListenTogether] 连接已就绪, memberId=${memberId.value}`);
+    }
+
     lt.onRoomUpdate((updatedRoom) => {
       console.log(`[ListenTogether] 房间信息更新, controllerId=${updatedRoom?.controllerId ?? "null"}, memberCount=${updatedRoom?.members.length ?? 0}`);
       room.value = updatedRoom;
       if (updatedRoom) {
         controllerId.value = updatedRoom.controllerId;
+        queue.value = updatedRoom.queue ?? [];
       }
     });
 
@@ -310,6 +342,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     lt.onError((error) => {
       console.error("[ListenTogether] error:", error);
       lastError.value = error;
+      toast.error(error);
     });
 
     lt.onKicked((reason) => {
@@ -329,6 +362,53 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     lt.onOnlineUrl((data) => {
       console.log(`[ListenTogether] 收到在线URL, trackId=${data.trackId}, url=${data.url}`);
       onlineUrls.value[data.trackId] = data.url;
+    });
+
+    lt.onQueueUpdate((updatedQueue) => {
+      console.log(`[ListenTogether] 队列更新, 共${updatedQueue.length}首`);
+      queue.value = updatedQueue;
+    });
+
+    lt.onSearchShared((share) => {
+      console.log(`[ListenTogether] 搜索共享, platform=${share.platform}, keyword=${share.keyword}`);
+      searchShares.value.push(share);
+    });
+
+    lt.onReaction((reaction) => {
+      console.log(`[ListenTogether] 表情反应, emoji=${reaction.emoji}, sender=${reaction.senderNickname}`);
+      reactions.value.push(reaction);
+      // 3秒后自动移除旧反应
+      setTimeout(() => {
+        reactions.value = reactions.value.filter((r) => r.timestamp !== reaction.timestamp || r.senderId !== reaction.senderId);
+      }, 3000);
+    });
+
+    lt.onBestAudioSource((source) => {
+      console.log(`[ListenTogether] 收到最优音源: memberId=${source.memberId}, quality=${source.quality}, type=${source.sourceType}`);
+      bestAudioSource.value = source;
+    });
+
+    lt.onAudioSourceUpdate((sources) => {
+      console.log(`[ListenTogether] 收到音源更新: 共${sources.length}个音源`);
+      audioSources.value = sources;
+    });
+
+    lt.onMessageRecalled((data) => {
+      console.log(`[ListenTogether] 收到消息撤回事件: messageId=${data.messageId}, recalledBy=${data.recalledBy}`);
+      const targetMsg = chatMessages.value.find((m) => m.id === data.messageId);
+      if (targetMsg) {
+        targetMsg.isRecalled = true;
+        targetMsg.recalledAt = Date.now();
+        targetMsg.recalledBy = data.recalledBy;
+        console.log(`[ListenTogether] 消息已标记为撤回: messageId=${data.messageId}, index=${chatMessages.value.indexOf(targetMsg)}`);
+      } else {
+        console.log(`[ListenTogether] 消息撤回事件未找到对应消息: messageId=${data.messageId}, 当前消息总数=${chatMessages.value.length}`);
+      }
+    });
+
+    lt.onChatAck((data) => {
+      console.log(`[ListenTogether] 收到聊天确认: msgId=${data.msgId}, seqId=${data.seqId}`);
+      // 可在此处更新消息发送状态（如从"发送中"变为"已发送"）
     });
   };
 
@@ -439,7 +519,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
 
     // 偏差在忽略阈值内，不做任何调整，避免频繁 seek 造成跳动
     if (Math.abs(diff) <= SYNC_IGNORE_THRESHOLD) {
-      console.log(`[ListenTogether] 位置偏差在可忽略范围内，跳过 seek`);
+      console.log("[ListenTogether] 位置偏差在可忽略范围内，跳过 seek");
       return;
     }
 
@@ -493,6 +573,41 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     }
   };
 
+  /** 发送队列操作
+   * @param action - 操作类型
+   * @param payload - 操作数据
+   */
+  const sendQueueAction = async (action: string, payload: unknown): Promise<void> => {
+    console.log(`[ListenTogether] 发送队列操作: action=${action}`);
+    await lt.sendQueue(action, payload);
+  };
+
+  /** 发送搜索共享
+   * @param platform - 搜索平台
+   * @param keyword - 搜索关键词
+   * @param results - 搜索结果
+   */
+  const sendSearchShare = async (platform: string, keyword: string, results: unknown): Promise<void> => {
+    console.log(`[ListenTogether] 发送搜索共享: platform=${platform}, keyword=${keyword}`);
+    await lt.sendSearchShare(platform, keyword, results);
+  };
+
+  /** 发送表情反应
+   * @param emoji - 表情符号
+   */
+  const sendReaction = async (emoji: string): Promise<void> => {
+    console.log(`[ListenTogether] 发送表情反应: emoji=${emoji}`);
+    await lt.sendReaction(emoji);
+  };
+
+  /** 报告自己的音源品质
+   * @param source - 音源信息
+   */
+  const reportAudioSource = async (source: ListenTogetherAudioSource): Promise<void> => {
+    console.log(`[ListenTogether] 报告音源: trackId=${source.trackId}, quality=${source.quality}, type=${source.sourceType}`);
+    await lt.sendAudioSource(source);
+  };
+
   /** 重置状态 */
   const resetState = (): void => {
     console.log("[ListenTogether] 重置状态");
@@ -509,7 +624,11 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     memberId.value = "";
     onlineUrls.value = {};
     lastError.value = null;
-    lastSeekAt = 0;
+    queue.value = [];
+    searchShares.value = [];
+    reactions.value = [];
+    audioSources.value = [];
+    bestAudioSource.value = null;
     console.log("[ListenTogether] 状态重置完成");
   };
 
@@ -568,6 +687,12 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     onlineUrls,
     lastError,
     memberId,
+    queue,
+    searchShares,
+    reactions,
+    audioSources,
+    bestAudioSource,
+    recallMessage,
     createRoom,
     closeRoom,
     joinRoom,
@@ -579,6 +704,10 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     kickMember,
     blacklistMember,
     getShareLink,
+    sendQueueAction,
+    sendSearchShare,
+    sendReaction,
+    reportAudioSource,
     resetState,
   };
 });

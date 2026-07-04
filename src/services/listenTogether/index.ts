@@ -11,6 +11,10 @@ import type {
   ListenTogetherActionProposal,
   ListenTogetherServerMessage,
   ListenTogetherClientMessage,
+  ListenTogetherQueueItem,
+  ListenTogetherSearchShare,
+  ListenTogetherReaction,
+  ListenTogetherAudioSource,
 } from "@shared/types/listenTogether";
 import type { Track } from "@shared/types/player";
 
@@ -52,6 +56,13 @@ const listeners = {
   kicked: new Set<(reason: string) => void>(),
   blacklisted: new Set<(reason: string) => void>(),
   onlineUrl: new Set<(data: { trackId: string; url: string }) => void>(),
+  queueUpdate: new Set<(queue: ListenTogetherQueueItem[]) => void>(),
+  searchShared: new Set<(share: ListenTogetherSearchShare) => void>(),
+  reaction: new Set<(reaction: ListenTogetherReaction) => void>(),
+  bestAudioSource: new Set<(source: ListenTogetherAudioSource) => void>(),
+  audioSourceUpdate: new Set<(sources: ListenTogetherAudioSource[]) => void>(),
+  messageRecalled: new Set<(data: { messageId: string; recalledBy: string }) => void>(),
+  chatAck: new Set<(data: { msgId: string; seqId: number }) => void>(),
 };
 
 /** 获取当前连接状态 */
@@ -330,9 +341,13 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
     }
     case "error": {
       const data = msg.data as { error: string } | undefined;
+      console.log(`[ListenTogether] 服务端错误详情原始data:`, JSON.stringify(msg.data));
       if (data?.error) {
         console.log(`[ListenTogether] 服务端错误: ${data.error}`);
         listeners.error.forEach((cb) => cb(data.error));
+      } else {
+        console.log(`[ListenTogether] 服务端错误但data为空或error为空, data=`, JSON.stringify(data));
+        listeners.error.forEach((cb) => cb(data?.error || "未知错误"));
       }
       break;
     }
@@ -361,6 +376,60 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
       if (data) {
         console.log(`[ListenTogether] 收到在线URL: trackId=${data.trackId}, url长度=${data.url.length}`);
         listeners.onlineUrl.forEach((cb) => cb(data));
+      }
+      break;
+    }
+    case "queueUpdate": {
+      const queue = msg.data as ListenTogetherQueueItem[] | undefined;
+      if (queue && currentRoom) {
+        currentRoom.queue = queue;
+        listeners.queueUpdate.forEach((cb) => cb(queue));
+        listeners.roomUpdate.forEach((cb) => cb(currentRoom));
+      }
+      break;
+    }
+    case "searchShared": {
+      const share = msg.data as ListenTogetherSearchShare | undefined;
+      if (share) {
+        listeners.searchShared.forEach((cb) => cb(share));
+      }
+      break;
+    }
+    case "reaction": {
+      const reaction = msg.data as ListenTogetherReaction | undefined;
+      if (reaction) {
+        listeners.reaction.forEach((cb) => cb(reaction));
+      }
+      break;
+    }
+    case "bestAudioSource": {
+      const source = msg.data as ListenTogetherAudioSource | undefined;
+      if (source) {
+        console.log(`[ListenTogether] 收到最优音源: memberId=${source.memberId}, quality=${source.quality}, type=${source.sourceType}`);
+        listeners.bestAudioSource.forEach((cb) => cb(source));
+      }
+      break;
+    }
+    case "audioSourceUpdate": {
+      const sources = msg.data as ListenTogetherAudioSource[] | undefined;
+      if (sources) {
+        console.log(`[ListenTogether] 收到音源更新: 共${sources.length}个音源`);
+        listeners.audioSourceUpdate.forEach((cb) => cb(sources));
+      }
+      break;
+    }
+    case "messageRecalled": {
+      const data = msg.data as { messageId: string; recalledBy: string } | undefined;
+      if (data) {
+        listeners.messageRecalled.forEach((cb) => cb(data));
+      }
+      break;
+    }
+    case "chatAck": {
+      const data = msg.data as { msgId: string; seqId: number } | undefined;
+      if (data) {
+        console.log(`[ListenTogether] 收到聊天确认: msgId=${data.msgId}, seqId=${data.seqId}`);
+        listeners.chatAck.forEach((cb) => cb(data));
       }
       break;
     }
@@ -426,14 +495,18 @@ export const sendVote = async (proposalId: string, agree: boolean): Promise<void
   console.log("[ListenTogether] 投票已发送");
 };
 
-/** 发送聊天消息 */
-export const sendChat = async (content: string): Promise<void> => {
+/** 发送聊天消息
+ * @param content - 消息内容
+ * @param replyTo - 引用的消息（可选）
+ * @param mentions - @的成员ID列表（可选）
+ */
+export const sendChat = async (content: string, replyTo?: { messageId: string; senderNickname: string; content: string }, mentions?: string[]): Promise<void> => {
   if (ws?.readyState !== WebSocket.OPEN) {
     console.log("[ListenTogether] 发送聊天失败: WebSocket未打开");
     return;
   }
   console.log(`[ListenTogether] 发送聊天消息: content=${content.slice(0, 50)}`);
-  const payload = { content };
+  const payload = { content, replyTo, mentions };
   const msg: ListenTogetherClientMessage = {
     op: "chat",
     payload,
@@ -441,6 +514,23 @@ export const sendChat = async (content: string): Promise<void> => {
   };
   ws.send(JSON.stringify(msg));
   console.log("[ListenTogether] 聊天消息已发送");
+};
+
+/** 发送撤回消息 */
+export const sendRecall = async (messageId: string): Promise<void> => {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    console.log("[ListenTogether] 发送撤回失败: WebSocket未打开");
+    throw new Error("WebSocket未连接");
+  }
+  console.log(`[ListenTogether] 发送撤回请求: messageId=${messageId}`);
+  const payload = { messageId };
+  const msg: ListenTogetherClientMessage = {
+    op: "recall",
+    payload,
+    signature: await signPayload(payload),
+  };
+  ws.send(JSON.stringify(msg));
+  console.log("[ListenTogether] 撤回请求已发送");
 };
 
 /** 发送心跳 */
@@ -486,6 +576,73 @@ export const sendBlacklist = async (memberId: string): Promise<void> => {
   };
   ws.send(JSON.stringify(msg));
   console.log("[ListenTogether] 拉黑请求已发送");
+};
+
+/** 发送队列操作 */
+export const sendQueue = async (action: string, payload: unknown): Promise<void> => {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    console.log("[ListenTogether] 发送队列操作失败: WebSocket未打开");
+    return;
+  }
+  console.log(`[ListenTogether] 发送队列操作: action=${action}`);
+  const data = { action, data: payload };
+  const msg: ListenTogetherClientMessage = {
+    op: "queue",
+    payload: data,
+    signature: await signPayload(data),
+  };
+  ws.send(JSON.stringify(msg));
+  console.log("[ListenTogether] 队列操作已发送");
+};
+
+/** 发送搜索共享 */
+export const sendSearchShare = async (platform: string, keyword: string, results: unknown): Promise<void> => {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    console.log("[ListenTogether] 发送搜索共享失败: WebSocket未打开");
+    return;
+  }
+  console.log(`[ListenTogether] 发送搜索共享: platform=${platform}, keyword=${keyword}`);
+  const payload = { platform, keyword, results };
+  const msg: ListenTogetherClientMessage = {
+    op: "searchShare",
+    payload,
+    signature: await signPayload(payload),
+  };
+  ws.send(JSON.stringify(msg));
+  console.log("[ListenTogether] 搜索共享已发送");
+};
+
+/** 发送表情反应 */
+export const sendReaction = async (emoji: string): Promise<void> => {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    console.log("[ListenTogether] 发送表情反应失败: WebSocket未打开");
+    return;
+  }
+  console.log(`[ListenTogether] 发送表情反应: emoji=${emoji}`);
+  const payload = { emoji };
+  const msg: ListenTogetherClientMessage = {
+    op: "reaction",
+    payload,
+    signature: await signPayload(payload),
+  };
+  ws.send(JSON.stringify(msg));
+  console.log("[ListenTogether] 表情反应已发送");
+};
+
+/** 发送音源品质报告 */
+export const sendAudioSource = async (source: ListenTogetherAudioSource): Promise<void> => {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    console.log("[ListenTogether] 发送音源报告失败: WebSocket未打开");
+    return;
+  }
+  console.log(`[ListenTogether] 发送音源报告: trackId=${source.trackId}, quality=${source.quality}, type=${source.sourceType}`);
+  const msg: ListenTogetherClientMessage = {
+    op: "audioSource",
+    payload: source,
+    signature: await signPayload(source),
+  };
+  ws.send(JSON.stringify(msg));
+  console.log("[ListenTogether] 音源报告已发送");
 };
 
 /** 订阅连接状态变化 */
@@ -571,6 +728,50 @@ export const onOnlineUrl = (callback: (data: { trackId: string; url: string }) =
   listeners.onlineUrl.add(callback);
   return () => listeners.onlineUrl.delete(callback);
 };
+
+/** 订阅队列更新 */
+export const onQueueUpdate = (callback: (queue: ListenTogetherQueueItem[]) => void): (() => void) => {
+  listeners.queueUpdate.add(callback);
+  return () => listeners.queueUpdate.delete(callback);
+};
+
+/** 订阅搜索共享 */
+export const onSearchShared = (callback: (share: ListenTogetherSearchShare) => void): (() => void) => {
+  listeners.searchShared.add(callback);
+  return () => listeners.searchShared.delete(callback);
+};
+
+/** 订阅表情反应 */
+export const onReaction = (callback: (reaction: ListenTogetherReaction) => void): (() => void) => {
+  listeners.reaction.add(callback);
+  return () => listeners.reaction.delete(callback);
+};
+
+/** 订阅最优音源 */
+export const onBestAudioSource = (callback: (source: ListenTogetherAudioSource) => void): (() => void) => {
+  listeners.bestAudioSource.add(callback);
+  return () => listeners.bestAudioSource.delete(callback);
+};
+
+/** 订阅音源更新 */
+export const onAudioSourceUpdate = (callback: (sources: ListenTogetherAudioSource[]) => void): (() => void) => {
+  listeners.audioSourceUpdate.add(callback);
+  return () => listeners.audioSourceUpdate.delete(callback);
+};
+
+/** 订阅消息撤回 */
+export const onMessageRecalled = (callback: (data: { messageId: string; recalledBy: string }) => void): (() => void) => {
+  listeners.messageRecalled.add(callback);
+  return () => listeners.messageRecalled.delete(callback);
+};
+
+/** 订阅聊天确认 */
+export const onChatAck = (callback: (data: { msgId: string; seqId: number }) => void): (() => void) => {
+  listeners.chatAck.add(callback);
+  return () => listeners.chatAck.delete(callback);
+};
+
+/** 启动心跳定时器 */
 
 /** 启动心跳定时器 */
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;

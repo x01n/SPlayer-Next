@@ -195,6 +195,11 @@ class PluginHost {
     this.post({ kind: "settingsUpdate", pluginId, settings });
   }
 
+  sendPanelMessage(pluginId: string, panelId: string, message: unknown): void {
+    if (!this.isReady(pluginId)) return;
+    this.post({ kind: "panelMessage", pluginId, panelId, message });
+  }
+
   /** 关闭 host（应用退出时） */
   shutdown(): void {
     this.generation++;

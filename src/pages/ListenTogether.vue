@@ -1,18 +1,21 @@
 <script setup lang="ts">
+import type { Track } from "@shared/types/player";
+import type { ListenTogetherChatMessage } from "@shared/types/listenTogether";
 import { ref, computed } from "vue";
 import { useListenTogetherStore } from "@/stores/listenTogether";
 import { useUserStore } from "@/stores/user";
 import { useSettingsStore } from "@/stores/settings";
 import { toast } from "@/composables/useToast";
 
+import { useMediaStore } from "@/stores/media";
+import { searchSongs } from "@/apis/search";
+import type { Platform } from "@shared/types/platform";
+
 const store = useListenTogetherStore();
 const userStore = useUserStore();
 const settings = useSettingsStore();
+const media = useMediaStore();
 const { t } = useI18n();
-
-/** 聊天输入 */
-const chatInput = ref("");
-const chatContainerRef = ref<HTMLDivElement | null>(null);
 
 /** 创建房间表单 */
 const showCreateForm = ref(false);
@@ -31,14 +34,6 @@ const joinPort = ref(14558);
 const joinRoomId = ref("");
 const joinRoomKey = ref("");
 const showManualJoin = ref(false);
-
-/** 发送聊天消息 */
-const sendChat = (): void => {
-  if (!chatInput.value.trim()) return;
-  store.sendChat(chatInput.value.trim());
-  chatInput.value = "";
-  scrollToBottom();
-};
 
 /** 创建房间 */
 const handleCreateRoom = async (): Promise<void> => {
@@ -218,40 +213,6 @@ const connectionStatusText = computed(() => {
   }
 });
 
-/** 格式化聊天时间 */
-const formatChatTime = (timestamp: number): string => {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (isToday) return time;
-  const dateStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${dateStr} ${time}`;
-};
-
-/** 格式化日期分隔线 */
-const formatDateDivider = (timestamp: number): string => {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return t("listenTogether.page.today") ?? "今天";
-  if (diffDays === 1) return t("listenTogether.page.yesterday") ?? "昨天";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-};
-
-/** 判断是否需要显示日期分隔线 */
-const showDateDivider = (index: number): boolean => {
-  if (index === 0) return true;
-  const prev = store.chatMessages[index - 1];
-  const curr = store.chatMessages[index];
-  const prevDate = new Date(prev.timestamp).toDateString();
-  const currDate = new Date(curr.timestamp).toDateString();
-  return prevDate !== currDate;
-};
-
-/** 获取发送者首字母/头像文本 */
-const getAvatarText = (nickname: string): string => nickname?.[0]?.toUpperCase() ?? "?";
-
 /** 获取发送者头像颜色 */
 const getAvatarColor = (senderId: string): string => {
   const colors = ["#f55e55", "#5b8ff9", "#5ad8a6", "#f6bd16", "#e8684a", "#6dc8ec", "#9270ca", "#ff9d4d"];
@@ -262,16 +223,64 @@ const getAvatarColor = (senderId: string): string => {
   return colors[Math.abs(hash) % colors.length];
 };
 
-/** 滚动到底部 */
-const scrollToBottom = (): void => {
-  setTimeout(() => {
-    if (chatContainerRef.value) {
-      chatContainerRef.value.scrollTo({
-        top: chatContainerRef.value.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, 50);
+/** 处理聊天发送 */
+const handleChatSend = (content: string, replyTo?: ListenTogetherChatMessage["replyTo"], mentions?: string[]): void => {
+  store.sendChat(content, replyTo, mentions);
+};
+
+/** 处理聊天撤回 */
+const handleChatRecall = async (messageId: string): Promise<void> => {
+  await store.recallMessage(messageId);
+};
+
+/** 点歌弹窗 */
+const showAddSong = ref(false);
+const addSongKeyword = ref("");
+const searchResults = ref<Track[]>([]);
+const searching = ref(false);
+
+/** 添加当前播放歌曲到队列 */
+const handleAddCurrentSong = async (): Promise<void> => {
+  const track = media.track;
+  if (!track) {
+    toast.error(t("listenTogether.page.noPlayingTrack") ?? "当前没有播放歌曲");
+    return;
+  }
+  await store.sendQueueAction("add", { track });
+  toast.success(t("listenTogether.page.songAdded") ?? "已添加歌曲");
+  showAddSong.value = false;
+};
+
+const searchPlatform = ref<Platform>("netease");
+
+/** 搜索歌曲 */
+const handleSearchSong = async (): Promise<void> => {
+  const keyword = addSongKeyword.value.trim();
+  if (!keyword) return;
+  searching.value = true;
+  try {
+    const result = await searchSongs(searchPlatform.value, keyword, 0, 10);
+    searchResults.value = result.items.slice(0, 10);
+  } catch (err) {
+    console.error("[ListenTogether] 搜索失败:", err);
+    toast.error(t("common.searchFailed") ?? "搜索失败");
+  } finally {
+    searching.value = false;
+  }
+};
+
+/** 添加搜索到的歌曲到队列 */
+const handleAddSearchSong = async (track: Track): Promise<void> => {
+  await store.sendQueueAction("add", { track });
+  toast.success(t("listenTogether.page.songAdded") ?? "已添加歌曲");
+  showAddSong.value = false;
+  addSongKeyword.value = "";
+  searchResults.value = [];
+};
+
+/** 移除队列中的歌曲 */
+const handleRemoveSong = async (index: number): Promise<void> => {
+  await store.sendQueueAction("remove", { index });
 };
 
 </script>
@@ -372,7 +381,7 @@ const scrollToBottom = (): void => {
 
     <!-- 已连接状态 -->
     <div v-else class="flex-1 flex gap-5 min-h-0">
-      <!-- 左侧：房间信息 + 成员列表 -->
+      <!-- 左侧：房间信息 + 播放队列 + 成员列表 -->
       <div class="w-64 flex flex-col gap-4 shrink-0">
         <!-- 房间信息卡片 -->
         <div class="bg-surface-panel rounded-2xl p-4 border border-outline-variant/10 shadow-sm">
@@ -420,6 +429,43 @@ const scrollToBottom = (): void => {
           </div>
         </div>
 
+        <!-- 播放队列 -->
+        <div class="bg-surface-panel rounded-2xl p-4 shrink-0 border border-outline-variant/10 shadow-sm max-h-60 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-medium text-on-surface-variant/80">{{ t("listenTogether.page.queue") }}</h3>
+            <SButton variant="tertiary" size="small" @click="showAddSong = true">
+              {{ t("listenTogether.page.addSong") }}
+            </SButton>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0">
+            <div v-if="store.queue.length === 0" class="text-xs text-on-surface-variant/40 text-center py-4">
+              {{ t("listenTogether.page.emptyQueue") }}
+            </div>
+            <div v-else class="flex flex-col gap-1">
+              <div
+                v-for="(item, index) in store.queue"
+                :key="item.track.id + index"
+                class="flex items-center gap-2 p-2 rounded-xl hover:bg-surface-bright/60 transition-colors group"
+              >
+                <span class="text-xs text-on-surface-variant/40 w-5 text-center shrink-0">{{ index + 1 }}</span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm truncate">{{ item.track.title }}</p>
+                  <p class="text-xs text-on-surface-variant/50 truncate">
+                    {{ item.track.artists?.map((a) => a.name).join(", ") ?? t("listenTogether.panel.unknownArtist") }}
+                  </p>
+                </div>
+                <button
+                  v-if="store.isHost"
+                  class="opacity-0 group-hover:opacity-100 text-on-surface-variant/40 hover:text-red-400 transition-opacity shrink-0"
+                  @click="handleRemoveSong(index)"
+                >
+                  <IconLucideX class="size-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 成员列表 -->
         <div class="bg-surface-panel rounded-2xl p-4 flex-1 min-h-0 overflow-y-auto border border-outline-variant/10 shadow-sm">
           <h3 class="text-sm font-medium mb-3 text-on-surface-variant/80">{{ t("listenTogether.page.members") }}</h3>
@@ -458,111 +504,72 @@ const scrollToBottom = (): void => {
       </div>
 
       <!-- 右侧：聊天室 -->
-      <div class="flex-1 bg-surface-panel rounded-2xl flex flex-col min-h-0 border border-outline-variant/10 shadow-sm overflow-hidden">
-        <div class="p-4 border-b border-outline-variant/10 flex items-center justify-between">
-          <h3 class="text-sm font-medium text-on-surface-variant/80">{{ t("listenTogether.page.chat") }}</h3>
-          <span v-if="store.chatMessages.length > 0" class="text-xs text-on-surface-variant/50">
-            {{ store.chatMessages.length }} {{ t("listenTogether.page.messages") }}
-          </span>
-        </div>
+      <ChatRoom
+        :messages="store.chatMessages"
+        :current-member-id="store.memberId"
+        :members="store.room?.members ?? []"
+        @send="handleChatSend"
+        @recall="handleChatRecall"
+      />
 
-        <!-- 聊天消息列表 -->
-        <div ref="chatContainerRef" class="flex-1 overflow-y-auto p-4">
-          <div v-if="store.chatMessages.length === 0" class="flex flex-col items-center justify-center h-full text-on-surface-variant/40 text-sm gap-2">
-            <span class="text-4xl opacity-30">💬</span>
-            <span>{{ t("listenTogether.page.noMessages") }}</span>
+      <!-- 点歌弹窗 -->
+      <SDialog v-model:open="showAddSong" :title="t('listenTogether.page.addSong')">
+        <div class="flex flex-col gap-4 w-96">
+          <SButton
+            v-if="media.track"
+            type="primary"
+            class="w-full"
+            @click="handleAddCurrentSong"
+          >
+            {{ t("listenTogether.page.addCurrentSong") }}: {{ media.track.title }}
+          </SButton>
+
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-px bg-outline-variant/20" />
+            <span class="text-xs text-on-surface-variant/40">{{ t("common.or") ?? "或" }}</span>
+            <div class="flex-1 h-px bg-outline-variant/20" />
           </div>
 
-          <div class="flex flex-col gap-1">
-            <template v-for="(msg, index) in store.chatMessages" :key="msg.id || index">
-              <!-- 日期分隔线 -->
-              <div v-if="showDateDivider(index)" class="flex items-center justify-center my-4">
-                <div class="flex-1 h-px bg-outline-variant/20" />
-                <span class="px-3 text-xs text-on-surface-variant/50">{{ formatDateDivider(msg.timestamp) }}</span>
-                <div class="flex-1 h-px bg-outline-variant/20" />
-              </div>
-
-              <div
-                class="flex gap-3 chat-message"
-                :class="msg.senderId === store.memberId ? 'flex-row-reverse' : 'flex-row'"
-              >
-                <div
-                  class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 mt-1"
-                  :class="msg.senderId === store.memberId ? 'bg-primary text-white' : 'border'"
-                  :style="msg.senderId !== store.memberId ? { backgroundColor: getAvatarColor(msg.senderId) + '15', color: getAvatarColor(msg.senderId), borderColor: getAvatarColor(msg.senderId) + '30' } : {}"
-                >
-                  {{ getAvatarText(msg.senderNickname) }}
-                </div>
-                <div
-                  class="flex flex-col max-w-[70%] min-w-0"
-                  :class="msg.senderId === store.memberId ? 'items-end' : 'items-start'"
-                >
-                  <div class="flex items-center gap-2 mb-1 px-1">
-                    <span class="text-xs font-medium text-on-surface-variant/70">{{ msg.senderNickname }}</span>
-                    <span class="text-xs text-on-surface-variant/40">{{ formatChatTime(msg.timestamp) }}</span>
-                  </div>
-                  <div
-                    class="px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
-                    :class="msg.senderId === store.memberId
-                      ? 'bg-primary text-white rounded-2xl rounded-tr-sm shadow-md shadow-primary/20'
-                      : 'bg-surface-bright text-on-surface rounded-2xl rounded-tl-sm border border-outline-variant/10 shadow-sm'"
-                  >
-                    {{ msg.content }}
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <!-- 聊天输入 -->
-        <div class="p-4 border-t border-outline-variant/10">
-          <div class="flex items-end gap-2 bg-surface-bright/60 rounded-2xl p-1.5 border border-outline-variant/10 focus-within:border-primary/40 focus-within:bg-surface-bright focus-within:shadow-sm transition-all duration-200">
+          <div class="flex gap-2">
             <SInput
-              v-model="chatInput"
-              :placeholder="t('listenTogether.page.chatPlaceholder')"
-              class="flex-1 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-3 py-2"
-              @keydown.enter="sendChat"
+              v-model="addSongKeyword"
+              :placeholder="t('listenTogether.page.searchSongPlaceholder') ?? '搜索歌曲'"
+              class="flex-1"
+              @keydown.enter="handleSearchSong"
             />
-            <SButton type="primary" class="rounded-xl px-4 shadow-sm" @click="sendChat">
-              {{ t("listenTogether.page.send") }}
+            <SButton :loading="searching" @click="handleSearchSong">
+              {{ t("common.search") ?? "搜索" }}
             </SButton>
           </div>
+
+          <div
+            v-if="searchResults.length > 0"
+            class="flex flex-col gap-1 max-h-60 overflow-y-auto"
+          >
+            <div
+              v-for="track in searchResults"
+              :key="track.id"
+              class="flex items-center gap-2 p-2 rounded-xl hover:bg-surface-bright/60 cursor-pointer transition-colors"
+              @click="handleAddSearchSong(track)"
+            >
+              <div class="min-w-0 flex-1">
+                <p class="text-sm truncate">{{ track.title }}</p>
+                <p class="text-xs text-on-surface-variant/50 truncate">
+                  {{ track.artists?.map((a) => a.name).join(", ") ?? t("listenTogether.panel.unknownArtist") }}
+                </p>
+              </div>
+              <SButton type="primary" size="small">
+                {{ t("common.add") ?? "添加" }}
+              </SButton>
+            </div>
+          </div>
         </div>
-      </div>
+      </SDialog>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 聊天消息进入动画 */
-.chat-message {
-  animation: chatMessageIn 0.25s ease-out;
-  animation-fill-mode: both;
-}
-
-@keyframes chatMessageIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* 日期分隔线动画 */
-.chat-message:first-child .date-divider,
-.chat-message + .chat-message .date-divider {
-  animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 /* 滚动条样式优化 */
 .overflow-y-auto::-webkit-scrollbar {
   width: 4px;

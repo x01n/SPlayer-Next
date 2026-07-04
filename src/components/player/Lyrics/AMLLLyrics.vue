@@ -136,7 +136,8 @@ onMounted(() => {
 
   if (processedLyrics.value.length > 0) {
     playerRef.value.setLyricLines(processedLyrics.value, props.initialTime);
-  } else if (Number.isFinite(props.initialTime) && props.initialTime >= 0) {
+  }
+  if (Number.isFinite(props.initialTime) && props.initialTime >= 0) {
     playerRef.value.setCurrentTime(props.initialTime, true);
   }
 

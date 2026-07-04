@@ -35,7 +35,21 @@ const dispatchCommand = async (ws: WSContext, msg: ClientMessage): Promise<void>
   try {
     // 一起听操作优先处理
     const listenTogetherOps = new Set([
-      "join", "leave", "sync", "propose", "vote", "chat", "chunkAck", "heartbeat",
+      "join",
+      "leave",
+      "sync",
+      "propose",
+      "vote",
+      "chat",
+      "chunkAck",
+      "heartbeat",
+      "kick",
+      "blacklist",
+      "queue",
+      "searchShare",
+      "reaction",
+      "audioSource",
+      "recall",
     ]);
     if (listenTogetherOps.has(msg.op)) {
       await handleListenTogetherMessage(ws, msg as Parameters<typeof handleListenTogetherMessage>[1]);

@@ -32,6 +32,8 @@ export interface SComboboxProps {
   emptyText?: string;
   /** 启用虚拟滚动 */
   virtual?: boolean;
+  /** 是否允许输入自定义值（按回车创建） */
+  allowCustom?: boolean;
 }
 
 const props = withDefaults(defineProps<SComboboxProps>(), {
@@ -45,6 +47,7 @@ const props = withDefaults(defineProps<SComboboxProps>(), {
   maxTagCount: 2,
   emptyText: "",
   virtual: false,
+  allowCustom: false,
 });
 
 const emit = defineEmits<{
@@ -65,7 +68,14 @@ const optionMap = computed(
 );
 
 const selectedOptions = computed(() =>
-  selectedValues.value.map((v) => optionMap.value.get(v)).filter((o): o is SComboboxOption => !!o),
+  selectedValues.value
+    .map((v) => {
+      const opt = optionMap.value.get(v);
+      if (opt) return opt;
+      if (props.allowCustom) return { value: v, label: String(v) } as SComboboxOption;
+      return undefined;
+    })
+    .filter((o): o is SComboboxOption => !!o),
 );
 
 const visibleTags = computed(() => selectedOptions.value.slice(0, props.maxTagCount));
@@ -120,6 +130,33 @@ const compareByValue = (a: unknown, b: unknown): boolean => {
   const av = a && typeof a === "object" ? (a as SComboboxOption).value : a;
   const bv = b && typeof b === "object" ? (b as SComboboxOption).value : b;
   return av === bv;
+};
+
+/** 搜索框回车：允许创建自定义值 */
+const handleSearchEnter = (e: KeyboardEvent): void => {
+  if (!props.allowCustom || !searchTerm.value.trim()) return;
+  const val = searchTerm.value.trim();
+  // 若与已有选项完全匹配（忽略大小写），交由 ComboboxRoot 默认处理
+  const exactMatch = props.options.some(
+    (o) => String(o.value).toLowerCase() === val.toLowerCase(),
+  );
+  if (exactMatch) return;
+  e.preventDefault();
+  e.stopPropagation();
+  // 若已选中则仅清空搜索
+  const alreadySelected = selectedValues.value.some(
+    (v) => String(v).toLowerCase() === val.toLowerCase(),
+  );
+  if (alreadySelected) {
+    searchTerm.value = "";
+    return;
+  }
+  if (props.multiple) {
+    emit("update:modelValue", [...selectedValues.value, val]);
+  } else {
+    emit("update:modelValue", val);
+  }
+  searchTerm.value = "";
 };
 </script>
 
@@ -198,6 +235,7 @@ const compareByValue = (a: unknown, b: unknown): boolean => {
             :placeholder="searchPlaceholder || t('common.search')"
             autocomplete="off"
             auto-focus
+            @keydown.enter="handleSearchEnter"
           />
         </div>
 

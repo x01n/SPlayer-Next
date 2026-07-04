@@ -8,14 +8,24 @@ export const usePluginsStore = defineStore("plugins", () => {
   const marketLoaded = ref(false);
   let unsubscribe: (() => void) | null = null;
 
-  /** 仅 manifest.type 不为 "control" 的插件（音源类，含 type 缺省） */
+  /** manifest.type === "source" 或缺省的插件（音源类） */
   const sourcePlugins = computed(() =>
-    list.value.filter((info) => info.manifest.type !== "control"),
+    list.value.filter((info) => info.manifest.type === "source" || !info.manifest.type),
   );
 
   /** manifest.type === "control" 的插件（控制类） */
   const controlPlugins = computed(() =>
     list.value.filter((info) => info.manifest.type === "control"),
+  );
+
+  /** manifest.type === "panel" 的插件（面板类） */
+  const panelPlugins = computed(() =>
+    list.value.filter((info) => info.manifest.type === "panel"),
+  );
+
+  /** manifest.type === "service" 的插件（服务类） */
+  const servicePlugins = computed(() =>
+    list.value.filter((info) => info.manifest.type === "service"),
   );
 
   /** 启用且就绪的插件贡献的歌曲菜单项，按插件归组（无 ui 权限的已被主进程过滤为空，不在此出现） */
@@ -164,6 +174,8 @@ export const usePluginsStore = defineStore("plugins", () => {
     loaded,
     sourcePlugins,
     controlPlugins,
+    panelPlugins,
+    servicePlugins,
     menuContributions,
     marketPlugins,
     fetchMarket,

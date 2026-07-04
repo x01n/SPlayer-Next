@@ -2018,14 +2018,33 @@
       "host": "房主",
       "kick": "踢出",
       "blacklist": "拉黑",
-      "chat": "聊天室",
+      "queue": "播放队列",
+      "addSong": "点歌",
+      "addCurrentSong": "添加当前歌曲",
+      "searchSongPlaceholder": "搜索歌曲...",
+      "songAdded": "已添加歌曲",
+      "emptyQueue": "暂无歌曲，快去点歌吧",
+      "noPlayingTrack": "当前没有播放歌曲",
+      "today": "今天",
+      "yesterday": "昨天",
       "noMessages": "还没有消息，说点什么吧~",
       "chatPlaceholder": "输入消息...",
       "send": "发送",
       "kickSuccess": "已踢出成员",
       "kickFailed": "踢出失败",
       "blacklistSuccess": "已拉黑成员",
-      "blacklistFailed": "拉黑失败"
+      "blacklistFailed": "拉黑失败",
+      "chat": {
+        "reply": "引用",
+        "recall": "撤回",
+        "recalled": "撤回了一条消息",
+        "recallSuccess": "撤回成功",
+        "recallFailed": "撤回失败",
+        "replyingTo": "引用",
+        "quoted": "引用了",
+        "mentionedYou": "提到了你",
+        "truncated": "消息过长，已截断"
+      }
     }
   }
 }

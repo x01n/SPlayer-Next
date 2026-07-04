@@ -17,6 +17,8 @@ import {
   pluginStorageSet,
 } from "./storage";
 import { playerControl } from "@main/services/playerControl";
+import { shell, dialog, clipboard, Notification } from "electron";
+import { panelManager } from "./panel";
 
 /** 处理一次 plugin→host 调用 */
 export const dispatchHostCall = async (
@@ -36,6 +38,31 @@ export const dispatchHostCall = async (
     if (method.startsWith("player.") && !grant.includes("control")) {
       coreLog.warn(`[plugin:${pluginId}] 缺少 "control" 权限，拒绝调用 ${method}`);
       throw Object.assign(new Error(`plugin "${pluginId}" lacks "control" grant`), {
+        code: PluginErrorCodes.PERMISSION_DENIED,
+      });
+    }
+    if (method.startsWith("notification.") && !grant.includes("notification")) {
+      throw Object.assign(new Error(`plugin "${pluginId}" lacks "notification" grant`), {
+        code: PluginErrorCodes.PERMISSION_DENIED,
+      });
+    }
+    if (method.startsWith("clipboard.") && !grant.includes("clipboard")) {
+      throw Object.assign(new Error(`plugin "${pluginId}" lacks "clipboard" grant`), {
+        code: PluginErrorCodes.PERMISSION_DENIED,
+      });
+    }
+    if (method.startsWith("system.") && !grant.includes("system")) {
+      throw Object.assign(new Error(`plugin "${pluginId}" lacks "system" grant`), {
+        code: PluginErrorCodes.PERMISSION_DENIED,
+      });
+    }
+    if (method.startsWith("dialog.") && !grant.includes("dialog")) {
+      throw Object.assign(new Error(`plugin "${pluginId}" lacks "dialog" grant`), {
+        code: PluginErrorCodes.PERMISSION_DENIED,
+      });
+    }
+    if (method.startsWith("panel.") && !grant.includes("webview")) {
+      throw Object.assign(new Error(`plugin "${pluginId}" lacks "webview" grant`), {
         code: PluginErrorCodes.PERMISSION_DENIED,
       });
     }
@@ -92,6 +119,106 @@ export const dispatchHostCall = async (
       case "player.getPosition":
         data = playerControl.getPosition();
         break;
+      case "notification.show": {
+        const opts = args[0] as { title?: string; body?: string; icon?: string; silent?: boolean };
+        if (opts.title) {
+          new Notification({
+            title: opts.title,
+            body: opts.body ?? "",
+            icon: opts.icon,
+            silent: opts.silent ?? false,
+          }).show();
+        }
+        data = undefined;
+        break;
+      }
+      case "clipboard.writeText": {
+        const text = String(args[0] ?? "");
+        clipboard.writeText(text);
+        data = undefined;
+        break;
+      }
+      case "clipboard.readText": {
+        data = clipboard.readText();
+        break;
+      }
+      case "system.openExternal": {
+        const url = String(args[0] ?? "");
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+          await shell.openExternal(url);
+        }
+        data = undefined;
+        break;
+      }
+      case "system.openPath": {
+        const openPath = String(args[0] ?? "");
+        await shell.openPath(openPath);
+        data = undefined;
+        break;
+      }
+      case "dialog.showOpenDialog": {
+        const dialogOpts = (args[0] ?? {}) as {
+          title?: string;
+          defaultPath?: string;
+          filters?: Array<{ name: string; extensions: string[] }>;
+          properties?: string[];
+        };
+        const result = await dialog.showOpenDialog({
+          title: dialogOpts.title,
+          defaultPath: dialogOpts.defaultPath,
+          filters: dialogOpts.filters,
+          properties: (dialogOpts.properties as any) ?? ["openFile"],
+        });
+        data = { canceled: result.canceled, filePaths: result.filePaths };
+        break;
+      }
+      case "dialog.showSaveDialog": {
+        const saveOpts = (args[0] ?? {}) as {
+          title?: string;
+          defaultPath?: string;
+          filters?: Array<{ name: string; extensions: string[] }>;
+        };
+        const result = await dialog.showSaveDialog({
+          title: saveOpts.title,
+          defaultPath: saveOpts.defaultPath,
+          filters: saveOpts.filters,
+        });
+        data = { canceled: result.canceled, filePath: result.filePath };
+        break;
+      }
+      case "panel.show": {
+        const panelId = String(args[0] ?? "");
+        const panelHtml = String(args[1] ?? "");
+        const panelCss = String(args[2] ?? "");
+        const panelJs = String(args[3] ?? "");
+        await panelManager.showPanel(pluginId, panelId, panelHtml, panelCss, panelJs);
+        data = undefined;
+        break;
+      }
+      case "panel.hide": {
+        const hidePanelId = String(args[0] ?? "");
+        panelManager.hidePanel(pluginId, hidePanelId);
+        data = undefined;
+        break;
+      }
+      case "panel.close": {
+        const closePanelId = String(args[0] ?? "");
+        panelManager.closePanel(pluginId, closePanelId);
+        data = undefined;
+        break;
+      }
+      case "panel.postMessage": {
+        const msgPanelId = String(args[0] ?? "");
+        const message = args[1];
+        panelManager.postMessage(pluginId, msgPanelId, message);
+        data = undefined;
+        break;
+      }
+      case "panel.onMessage": {
+        // 在 worker 侧通过回调注册，主进程侧仅记录
+        data = undefined;
+        break;
+      }
       default:
         throw Object.assign(new Error(`unknown host method: ${method}`), {
           code: PluginErrorCodes.UNKNOWN,

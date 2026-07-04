@@ -11,7 +11,9 @@ import type {
   ListenTogetherMember,
   ListenTogetherChatMessage,
   ListenTogetherActionProposal,
+  ListenTogetherQueueItem,
   ListenTogetherSyncState,
+  ListenTogetherAudioSource,
 } from "@shared/types/listenTogether";
 import { serverLog } from "@main/utils/logger";
 import { store } from "@main/store";
@@ -37,6 +39,10 @@ const activeProposals = new Map<string, ListenTogetherActionProposal>();
 const syncTimers = new Map<string, ReturnType<typeof setInterval>>();
 /** 上次广播的同步状态快照：房间ID -> key */
 const lastBroadcastSnapshots = new Map<string, string>();
+/** 成员音源存储：房间ID -> Map<成员ID, 音源信息> */
+const memberAudioSources = new Map<string, Map<string, ListenTogetherAudioSource>>();
+/** 房间消息序列号计数器：房间ID -> 当前seqId */
+const messageSeqCounters = new Map<string, number>();
 
 const MAX_CHAT_HISTORY = 100;
 const DEFAULT_SYNC_INTERVAL = 8000;
@@ -97,12 +103,14 @@ export const createRoom = (hostNickname: string, hostNeteaseUserId?: number, roo
     createdAt: Date.now(),
     controllerId: hostId,
     cryptoKey: generateCryptoKey(),
+    queue: [],
   };
 
   rooms.set(roomId, room);
   roomKeyMap.set(roomId, roomKey);
   hostTokenMap.set(roomId, hostToken);
   chatHistory.set(roomId, []);
+  messageSeqCounters.set(roomId, 0);
 
   // 房主token也注册到tokenMap，但暂不关联WS（WS连接时通过hostToken识别）
   tokenMap.set(hostToken, { roomId, memberId: hostId });
@@ -151,6 +159,9 @@ export const closeRoom = (roomId: string): boolean => {
   hostTokenMap.delete(roomId);
   chatHistory.delete(roomId);
   lastBroadcastSnapshots.delete(roomId);
+  memberAudioSources.delete(roomId);
+  messageSeqCounters.delete(roomId);
+  memberAudioSources.delete(roomId);
 
   serverLog.info(`[ListenTogether] 一起听房间已关闭: ${roomId}`);
   return true;
@@ -272,6 +283,15 @@ export const leaveRoom = (token: string): { roomId: string; memberId: string; wa
   }
 
   tokenMap.delete(token);
+
+  // 清理离开成员的音源数据
+  const roomAudioSources = memberAudioSources.get(roomId);
+  if (roomAudioSources) {
+    roomAudioSources.delete(memberId);
+    if (roomAudioSources.size === 0) {
+      memberAudioSources.delete(roomId);
+    }
+  }
 
   // 如果房主离开，关闭房间
   if (wasHost && !isHostToken) {
@@ -438,21 +458,25 @@ export const getRoomSyncState = (roomId: string): ListenTogetherSyncState | null
 export const addChatMessage = (
   roomId: string,
   message: ListenTogetherChatMessage,
-): void => {
+): number => {
   serverLog.info(`[ListenTogether] 添加聊天消息: ${roomId}, 发送者: ${message.senderId}, 内容长度: ${message.content?.length || 0}`);
   const history = chatHistory.get(roomId);
   if (!history) {
     serverLog.info(`[ListenTogether] 添加聊天消息失败，房间聊天记录不存在: ${roomId}`);
-    return;
+    return -1;
   }
+
+  const nextSeq = (messageSeqCounters.get(roomId) || 0) + 1;
+  messageSeqCounters.set(roomId, nextSeq);
+  message.seqId = nextSeq;
 
   history.push(message);
   if (history.length > MAX_CHAT_HISTORY) {
     history.shift();
   }
-  serverLog.info(`[ListenTogether] 聊天消息已添加: ${roomId}, 当前历史消息数: ${history.length}`);
+  serverLog.info(`[ListenTogether] 聊天消息已添加: ${roomId}, seqId=${nextSeq}, 当前历史消息数: ${history.length}`);
+  return nextSeq;
 };
-
 /** 获取聊天历史 */
 export const getChatHistory = (roomId: string): ListenTogetherChatMessage[] => {
   serverLog.info(`[ListenTogether] 获取聊天历史: ${roomId}`);
@@ -707,4 +731,190 @@ export const isListenTogetherEnabled = (): boolean => {
   const enabled = store.get("listenTogether.enabled") === true;
   serverLog.info(`[ListenTogether] 检查一起听是否启用: ${enabled}`);
   return enabled;
+};
+
+/** 队列操作应用 */
+export const applyQueueAction = (
+  roomId: string,
+  memberId: string,
+  action: string,
+  data: unknown,
+): ListenTogetherQueueItem[] | null => {
+  serverLog.info(`[ListenTogether] 应用队列操作: roomId=${roomId}, action=${action}, memberId=${memberId}`);
+  const room = rooms.get(roomId);
+  if (!room) {
+    serverLog.info(`[ListenTogether] 队列操作失败，房间不存在: ${roomId}`);
+    return null;
+  }
+
+  switch (action) {
+    case "add": {
+      const track = (data as { track?: unknown })?.track as Track | undefined;
+      if (!track) {
+        serverLog.info("[ListenTogether] 队列添加失败，缺少track");
+        return null;
+      }
+      room.queue.push({ track, addedBy: memberId, addedAt: Date.now() });
+      serverLog.info(`[ListenTogether] 队列添加成功: roomId=${roomId}, trackId=${track.id}, 队列长度=${room.queue.length}`);
+      return room.queue;
+    }
+    case "remove": {
+      const index = (data as { index?: number })?.index ?? -1;
+      if (index < 0 || index >= room.queue.length) {
+        serverLog.info(`[ListenTogether] 队列移除失败，索引越界: index=${index}, length=${room.queue.length}`);
+        return null;
+      }
+      room.queue.splice(index, 1);
+      serverLog.info(`[ListenTogether] 队列移除成功: roomId=${roomId}, index=${index}, 队列长度=${room.queue.length}`);
+      return room.queue;
+    }
+    case "clear": {
+      room.queue = [];
+      serverLog.info(`[ListenTogether] 队列清空成功: roomId=${roomId}`);
+      return room.queue;
+    }
+    case "reorder": {
+      const from = (data as { from?: number })?.from ?? -1;
+      const to = (data as { to?: number })?.to ?? -1;
+      if (from < 0 || from >= room.queue.length || to < 0 || to >= room.queue.length) {
+        serverLog.info(`[ListenTogether] 队列重排序失败，索引越界: from=${from}, to=${to}, length=${room.queue.length}`);
+        return null;
+      }
+      const [item] = room.queue.splice(from, 1);
+      room.queue.splice(to, 0, item);
+      serverLog.info(`[ListenTogether] 队列重排序成功: roomId=${roomId}, from=${from}, to=${to}`);
+      return room.queue;
+    }
+    case "set": {
+      const newQueue = (data as { queue?: ListenTogetherQueueItem[] })?.queue;
+      if (!Array.isArray(newQueue)) {
+        serverLog.info("[ListenTogether] 队列设置失败，数据格式错误");
+        return null;
+      }
+      room.queue = newQueue;
+      serverLog.info(`[ListenTogether] 队列设置成功: roomId=${roomId}, length=${room.queue.length}`);
+      return room.queue;
+    }
+    default:
+      serverLog.info(`[ListenTogether] 未知队列操作: ${action}`);
+      return null;
+  }
+};
+
+/** 品质等级排名 */
+const qualityRank: Record<string, number> = {
+  "hi-res": 5,
+  lossless: 4,
+  hq: 3,
+  sq: 2,
+  lq: 1,
+};
+
+/** 音源类型排名 */
+const typeRank: Record<string, number> = {
+  local: 3,
+  online: 2,
+  streaming: 1,
+};
+
+/** 更新成员音源 */
+export const updateMemberAudioSource = (
+  roomId: string,
+  memberId: string,
+  source: ListenTogetherAudioSource,
+): void => {
+  serverLog.info(`[ListenTogether] 更新成员音源: roomId=${roomId}, memberId=${memberId}`);
+  let roomSources = memberAudioSources.get(roomId);
+  if (!roomSources) {
+    roomSources = new Map<string, ListenTogetherAudioSource>();
+    memberAudioSources.set(roomId, roomSources);
+  }
+  roomSources.set(memberId, source);
+  serverLog.info(`[ListenTogether] 成员音源已更新: roomId=${roomId}, memberId=${memberId}, quality=${source.quality}, type=${source.sourceType}`);
+};
+
+/** 选举最优音源 */
+export const electBestAudioSource = (roomId: string): ListenTogetherAudioSource | null => {
+  serverLog.info(`[ListenTogether] 开始选举最优音源: roomId=${roomId}`);
+  const roomSources = memberAudioSources.get(roomId);
+  if (!roomSources || roomSources.size === 0) {
+    serverLog.info(`[ListenTogether] 选举最优音源失败，无音源数据: roomId=${roomId}`);
+    return null;
+  }
+
+  let best: ListenTogetherAudioSource | null = null;
+  let bestScore = -1;
+
+  for (const source of roomSources.values()) {
+    const qRank = qualityRank[source.quality] || 0;
+    const tRank = typeRank[source.sourceType] || 0;
+    const score = qRank * 10 + tRank;
+
+    serverLog.info(`[ListenTogether] 音源评分: memberId=${source.memberId}, quality=${source.quality}(${qRank}), type=${source.sourceType}(${tRank}), score=${score}`);
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = source;
+    }
+  }
+
+  if (best) {
+    serverLog.info(`[ListenTogether] 最优音源选举完成: roomId=${roomId}, memberId=${best.memberId}, quality=${best.quality}, type=${best.sourceType}`);
+  }
+  return best;
+};
+
+/** 获取房间内所有音源 */
+export const getRoomAudioSources = (roomId: string): ListenTogetherAudioSource[] => {
+  const roomSources = memberAudioSources.get(roomId);
+  return roomSources ? Array.from(roomSources.values()) : [];
+};
+
+/** 撤回聊天消息 */
+export const recallChatMessage = (
+  roomId: string,
+  messageId: string,
+  memberId: string,
+): { success: boolean; reason?: string } => {
+  serverLog.info(`[ListenTogether] 尝试撤回消息: roomId=${roomId}, messageId=${messageId}, memberId=${memberId}`);
+  const room = rooms.get(roomId);
+  if (!room) {
+    serverLog.info(`[ListenTogether] 撤回消息失败，房间不存在: ${roomId}`);
+    return { success: false, reason: "房间不存在" };
+  }
+
+  const history = chatHistory.get(roomId);
+  if (!history) {
+    serverLog.info(`[ListenTogether] 撤回消息失败，聊天记录不存在: ${roomId}`);
+    return { success: false, reason: "聊天记录不存在" };
+  }
+
+  const message = history.find((m) => m.id === messageId);
+  if (!message) {
+    serverLog.info(`[ListenTogether] 撤回消息失败，消息不存在: ${messageId}`);
+    return { success: false, reason: "消息不存在" };
+  }
+
+  // 只能撤回自己发的消息，且5分钟内
+  if (message.senderId !== memberId) {
+    serverLog.info(`[ListenTogether] 撤回消息失败，无权撤回他人消息: ${messageId}`);
+    return { success: false, reason: "无权撤回他人消息" };
+  }
+
+  if (Date.now() - message.timestamp > 5 * 60 * 1000) {
+    serverLog.info(`[ListenTogether] 撤回消息失败，超过5分钟: ${messageId}`);
+    return { success: false, reason: "消息发送超过5分钟，无法撤回" };
+  }
+
+  if (message.isRecalled) {
+    serverLog.info(`[ListenTogether] 撤回消息失败，消息已撤回: ${messageId}`);
+    return { success: false, reason: "消息已被撤回" };
+  }
+
+  message.isRecalled = true;
+  message.recalledAt = Date.now();
+  message.recalledBy = memberId;
+
+  serverLog.info(`[ListenTogether] 消息已撤回: ${messageId}`);
+  return { success: true };
 };

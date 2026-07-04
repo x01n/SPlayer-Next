@@ -13,6 +13,7 @@ const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
   netease: "wy",
   qqmusic: "tx",
   kugou: "kg",
+  spotify: "sp",
 };
 
 /**
@@ -20,7 +21,7 @@ const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
  * @param source - 要检查的 source
  */
 const isOnlinePlatform = (source: TrackSource): source is Platform =>
-  source === "netease" || source === "qqmusic" || source === "kugou";
+  source === "netease" || source === "qqmusic" || source === "kugou" || source === "spotify";
 
 /**
  * 派生缓存键

@@ -2018,14 +2018,33 @@
       "host": "Host",
       "kick": "Kick",
       "blacklist": "Blacklist",
-      "chat": "Chat",
+      "queue": "Queue",
+      "addSong": "Add Song",
+      "addCurrentSong": "Add Current Song",
+      "searchSongPlaceholder": "Search for songs...",
+      "songAdded": "Song added",
+      "emptyQueue": "No songs yet, add some!",
+      "noPlayingTrack": "No song currently playing",
+      "today": "Today",
+      "yesterday": "Yesterday",
       "noMessages": "No messages yet, say something~",
       "chatPlaceholder": "Type a message...",
       "send": "Send",
       "kickSuccess": "Member kicked",
       "kickFailed": "Failed to kick member",
       "blacklistSuccess": "Member blacklisted",
-      "blacklistFailed": "Failed to blacklist member"
+      "blacklistFailed": "Failed to blacklist member",
+      "chat": {
+        "reply": "Reply",
+        "recall": "Recall",
+        "recalled": "recalled a message",
+        "recallSuccess": "Recall successful",
+        "recallFailed": "Recall failed",
+        "replyingTo": "Replying to",
+        "quoted": "quoted",
+        "mentionedYou": "mentioned you",
+        "truncated": "Message too long, truncated"
+      }
     }
   }
 }
