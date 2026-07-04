@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 napi = { version = "3.8", default-features = false, features = ["napi9"] }
 napi-derive = "3.5"
 # 纯 Rust X11 客户端，零系统依赖
-x11rb = { version = "0.13", features = ["allow-unsafe-code", "shape"] }
+x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code", "shape"] }
 
 [build-dependencies]
 napi-build = "2.3"

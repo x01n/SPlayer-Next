@@ -1,4 +1,4 @@
-# tag（v*）触发
+# Tag（v*）触发
 # 各架构原生 runner 构建 → 合并清单 → 创建 GitHub 草稿 Release
 name: Release
 
@@ -78,12 +78,12 @@ jobs:
           fi
 
       # Linux: 安装系统构建/打包依赖
-      - name: 安装系统依赖 (Linux)
+      - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libasound2-dev libdbus-1-dev libxcb1-dev pkg-config clang \
+            libasound2-dev libdbus-1-dev pkg-config clang \
             rpm libarchive-tools
 
       # 清理旧构建产物
@@ -98,7 +98,7 @@ jobs:
         run: rm -rf dist out
 
       # CI 不需要国内镜像
-      - name: 移除 .npmrc
+      - name: Remove .npmrc
         shell: bash
         run: rm -f .npmrc
 
@@ -139,8 +139,6 @@ jobs:
           esac
 
       # 修复 Linux arm64 自动更新清单命名
-      # electron-builder 单独构建 arm64 时仍命名为 latest-linux.yml，会与 x64 撞名，
-      # 显式重命名为 latest-linux-arm64.yml（electron-updater 在 arm64 上据此查找）
       - name: Rename Linux arm64 update manifest
         if: matrix.target == 'linux-arm64'
         shell: bash

@@ -1,0 +1,51 @@
+# 合并 release PR 后自动推送 tag
+# PR 标题必须以 "release" 开头，且包含版本号（如 release v1.0.1）
+name: Auto Tag on Release PR Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+
+jobs:
+  push-tag:
+    name: Push Tag
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'release')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out git repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Extract version and push tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          VERSION=$(echo "$PR_TITLE" | grep -oP 'v\d+\.\d+\.\d+')
+          if [ -z "$VERSION" ]; then
+            echo "No version found in PR title: $PR_TITLE"
+            exit 1
+          fi
+
+          echo "Version: $VERSION"
+
+          # 检查 tag 是否已存在
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists"
+            exit 0
+          fi
+
+          git tag "$VERSION"
+          git push origin "$VERSION"
+          echo "Pushed tag $VERSION"

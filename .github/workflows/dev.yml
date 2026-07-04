@@ -1,4 +1,6 @@
 # Dev 分支推送构建
+# 全平台（Windows/macOS/Linux x64+arm64）全格式构建
+# 构建成功后自动创建 release PR
 name: Build Dev
 
 on:
@@ -22,38 +24,43 @@ on:
 env:
   NODE_VERSION: 22.x
 
+concurrency:
+  group: dev-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # 全平台全架构构建
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build ${{ matrix.name }} ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            name: windows
+            name: Windows
             arch: x64
-            artifact_name_suffix: windows-x64
-            package_extension: zip
             build_cmd: pnpm build:win --x64
+          - os: windows-11-arm
+            name: Windows
+            arch: arm64
+            build_cmd: pnpm build:win --arm64
           - os: macos-latest
             name: macOS
             arch: arm64
-            artifact_name_suffix: macos-arm64
-            package_extension: tar.gz
             build_cmd: pnpm build:mac --arm64
-          - os: macos-latest
+          - os: macos-15-intel
             name: macOS
             arch: x64
-            artifact_name_suffix: macos-x64
-            package_extension: tar.gz
             build_cmd: pnpm build:mac --x64
           - os: ubuntu-latest
-            name: linux
+            name: Linux
             arch: x64
-            artifact_name_suffix: linux-x64
-            package_extension: tar.gz
             build_cmd: pnpm build:linux --x64
+          - os: ubuntu-24.04-arm
+            name: Linux
+            arch: arm64
+            build_cmd: pnpm build:linux --arm64
     steps:
       - name: Check out git repository
         uses: actions/checkout@v5
@@ -74,90 +81,149 @@ jobs:
         with:
           workspaces: "native/audio-engine -> target\nnative/media-ctrl -> target"
 
-      # Linux: 安装系统构建/打包依赖
-      - name: 安装系统依赖 (Linux)
+      - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libasound2-dev libdbus-1-dev libxcb1-dev pkg-config clang \
+            libasound2-dev libdbus-1-dev pkg-config clang \
             rpm libarchive-tools
 
-      # 清理旧构建产物
-      - name: Clean workspace on Windows
+      - name: Clean workspace
+        if: runner.os != 'Windows'
+        run: rm -rf dist out
+      - name: Clean workspace (Windows)
         if: runner.os == 'Windows'
         run: |
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           if (Test-Path out) { Remove-Item -Recurse -Force out }
 
-      - name: Clean workspace on macOS & Linux
-        if: runner.os != 'Windows'
-        run: rm -rf dist out
-
-      # CI 不需要国内镜像
-      - name: 移除 .npmrc
+      - name: Remove .npmrc
         shell: bash
         run: rm -f .npmrc
 
-      # 安装项目依赖
       - name: Install dependencies
         run: pnpm install
 
-      # 构建
       - name: Build ${{ matrix.name }} ${{ matrix.arch }}
         run: ${{ matrix.build_cmd }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      # 上传构建产物 (Windows)
-      - name: Upload Windows Setup
+      # 上传所有构建产物
+      - name: Upload Windows artifacts
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: SPlayer-Next-Windows-setup-${{ matrix.arch }}
-          path: dist/*-setup.exe
+          name: dev-${{ matrix.name }}-${{ matrix.arch }}
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.exe
+            dist/*.zip
 
-      # 上传构建产物 (macOS)
-      - name: Upload macOS DMG
+      - name: Upload macOS artifacts
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
-          name: SPlayer-Next-macOS-dmg-${{ matrix.arch }}
-          path: dist/*.dmg
+          name: dev-${{ matrix.name }}-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
 
-      - name: Upload macOS Zip
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v7
-        with:
-          name: SPlayer-Next-macOS-zip-${{ matrix.arch }}
-          path: dist/*.zip
-
-      # 上传构建产物 (Linux)
-      - name: Upload Linux AppImage
+      - name: Upload Linux artifacts
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          name: SPlayer-Next-Linux-appimage-${{ matrix.arch }}
-          path: dist/*.AppImage
+          name: dev-${{ matrix.name }}-${{ matrix.arch }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/*.pacman
 
-      - name: Upload Linux DEB
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+  # 所有平台构建成功后，创建 release PR
+  create-release-pr:
+    name: Create Release PR
+    needs: build
+    if: github.ref == 'refs/heads/dev' && success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out git repository
+        uses: actions/checkout@v5
         with:
-          name: SPlayer-Next-Linux-deb-${{ matrix.arch }}
-          path: dist/*.deb
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux RPM
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          name: SPlayer-Next-Linux-rpm-${{ matrix.arch }}
-          path: dist/*.rpm
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Upload Linux Tar
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
-        with:
-          name: SPlayer-Next-Linux-tar-${{ matrix.arch }}
-          path: dist/*.tar.gz
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute next version
+        id: version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT -> Next: $NEXT_VERSION"
+
+      - name: Check if release PR already exists
+        id: check_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh pr list --repo "$GITHUB_REPOSITORY" --search "release v${{ steps.version.outputs.next }}" --state open --json number -q '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "PR already exists: #$EXISTING"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update package.json version and create PR
+        if: steps.check_pr.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEXT_VERSION="${{ steps.version.outputs.next }}"
+          BRANCH="release/v${NEXT_VERSION}"
+
+          # 创建分支
+          git checkout -b "$BRANCH"
+
+          # 更新版本号
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$NEXT_VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          git add package.json
+          git commit -m "chore: release v${NEXT_VERSION}"
+
+          # 推送分支
+          git push origin "$BRANCH"
+
+          # 创建 PR
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base dev \
+            --head "$BRANCH" \
+            --title "release v${NEXT_VERSION}" \
+            --body "## Release v${NEXT_VERSION}\n\n- 自动生成的发布 PR\n- 合并后将自动推送 tag 并触发发行版构建\n\n### 构建产物\nDev 构建产物可在 [Actions 运行记录](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) 中下载。"
+
+          echo "Created release PR: release v${NEXT_VERSION}"
