@@ -80,7 +80,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libasound2-dev libdbus-1-dev pkg-config clang \
+            libasound2-dev libdbus-1-dev libxcb1-dev pkg-config clang \
             rpm libarchive-tools
 
       # 清理旧构建产物
