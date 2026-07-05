@@ -31,16 +31,16 @@ export const useTimeFormat = () => {
   const useTimeDisplay = (index: 0 | 1) =>
     computed(() => {
       const display = timeFormatConfig[settingsStore.player.timeFormat][index];
-      switch (display) {
-        case "current":
-          return formatTime(statusStore.position);
-        case "total":
-          return formatTime(statusStore.duration);
-        case "remaining":
-          return "-" + formatTime(statusStore.duration - statusStore.position);
-        default:
-          return "";
+      if (display === "current") {
+        return formatTime(statusStore.position);
       }
+      if (display === "total") {
+        return formatTime(statusStore.duration);
+      }
+      if (display === "remaining") {
+        return "-" + formatTime(statusStore.duration - statusStore.position);
+      }
+      return "";
     });
 
   /** 切换时间格式 */
