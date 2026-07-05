@@ -461,7 +461,10 @@ const onPointerUp = (): void => {
 
 .s-slider-hitbox:not(.flex-col) .s-slider-thumb {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .s-slider-hitbox:not(.flex-col):hover .s-slider-thumb {

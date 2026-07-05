@@ -52,7 +52,10 @@ const dispatchCommand = async (ws: WSContext, msg: ClientMessage): Promise<void>
       "recall",
     ]);
     if (listenTogetherOps.has(msg.op)) {
-      await handleListenTogetherMessage(ws, msg as Parameters<typeof handleListenTogetherMessage>[1]);
+      await handleListenTogetherMessage(
+        ws,
+        msg as Parameters<typeof handleListenTogetherMessage>[1],
+      );
       return;
     }
 

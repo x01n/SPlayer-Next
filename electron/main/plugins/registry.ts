@@ -515,7 +515,13 @@ class PluginRegistry extends EventEmitter {
         const merged = { ...rt.status.sources, ...sources };
         this.setStatus(rt, { ...rt.status, sources: merged });
       },
-      onRegistered: ({ events, controls, settings, menus: declaredMenus, panels: declaredPanels }) => {
+      onRegistered: ({
+        events,
+        controls,
+        settings,
+        menus: declaredMenus,
+        panels: declaredPanels,
+      }) => {
         const menus = rt.manifest.grant.includes("ui") ? declaredMenus : [];
         if (declaredMenus.length && !menus.length) {
           coreLog.warn(`[plugin:${id}] 声明了菜单但缺少 "ui" 权限，已忽略`);
@@ -532,7 +538,15 @@ class PluginRegistry extends EventEmitter {
         if (rt.status.state === "ready") {
           this.setStatus(rt, { ...rt.status, events, controls, settings, menus, panels });
         } else {
-          this.setStatus(rt, { state: "ready", sources: {}, events, controls, settings, menus, panels });
+          this.setStatus(rt, {
+            state: "ready",
+            sources: {},
+            events,
+            controls,
+            settings,
+            menus,
+            panels,
+          });
         }
         this.maybePrimeControl(rt);
       },

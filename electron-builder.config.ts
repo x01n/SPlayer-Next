@@ -97,7 +97,10 @@ const config: Configuration = {
         "Application requests access to the user's Downloads folder.",
       CFBundleURLTypes: [
         { CFBundleURLName: "Orpheus Protocol", CFBundleURLSchemes: ["orpheus"] },
-        { CFBundleURLName: "Listen Together Protocol", CFBundleURLSchemes: ["splayer-listentogether"] },
+        {
+          CFBundleURLName: "Listen Together Protocol",
+          CFBundleURLSchemes: ["splayer-listentogether"],
+        },
       ],
     },
     target: ["dmg", "zip"],
@@ -113,7 +116,9 @@ const config: Configuration = {
     category: "Audio;Music;AudioVideo;",
     target: ["AppImage", "deb", "rpm", "tar.gz", "pacman"],
     syncDesktopName: true,
-    desktop: { entry: { MimeType: "x-scheme-handler/orpheus;x-scheme-handler/splayer-listentogether;" } },
+    desktop: {
+      entry: { MimeType: "x-scheme-handler/orpheus;x-scheme-handler/splayer-listentogether;" },
+    },
   },
   appImage: {
     artifactName: "${name}-${version}-${arch}.${ext}",

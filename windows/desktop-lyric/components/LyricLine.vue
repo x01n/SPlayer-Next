@@ -266,8 +266,7 @@ onBeforeUnmount(() => {
 }
 .dl-text.has-glow {
   filter: drop-shadow(0 0 1px var(--dl-stroke, transparent))
-    drop-shadow(0 0 2px var(--dl-stroke, transparent))
-    var(--dl-glow-text, none);
+    drop-shadow(0 0 2px var(--dl-stroke, transparent)) var(--dl-glow-text, none);
 }
 .dl-word {
   --p: 0%;

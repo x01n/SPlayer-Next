@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from "vue";
-import type {
-  ListenTogetherChatMessage,
-  ListenTogetherMember,
-} from "@shared/types/listenTogether";
+import type { ListenTogetherChatMessage, ListenTogetherMember } from "@shared/types/listenTogether";
 import { toast } from "@/composables/useToast";
 import IconLucideTextQuote from "~icons/lucide/text-quote";
 import IconLucideRotateCcw from "~icons/lucide/rotate-ccw";
@@ -75,7 +72,16 @@ const getAvatarText = (nickname: string): string => nickname?.[0]?.toUpperCase()
 
 /** 获取发送者头像颜色 */
 const getAvatarColor = (senderId: string): string => {
-  const colors = ["#f55e55", "#5b8ff9", "#5ad8a6", "#f6bd16", "#e8684a", "#6dc8ec", "#9270ca", "#ff9d4d"];
+  const colors = [
+    "#f55e55",
+    "#5b8ff9",
+    "#5ad8a6",
+    "#f6bd16",
+    "#e8684a",
+    "#6dc8ec",
+    "#9270ca",
+    "#ff9d4d",
+  ];
   let hash = 0;
   for (let i = 0; i < senderId.length; i++) {
     hash = senderId.charCodeAt(i) + ((hash << 5) - hash);
@@ -143,7 +149,9 @@ watch(
     if (newLen <= (oldLen ?? 0)) return;
     const newMsg = props.messages[newLen - 1];
     if (isAtMe(newMsg)) {
-      toast.info(`${newMsg.senderNickname} ${t("listenTogether.page.chat.mentionedYou") ?? "提到了你"}`);
+      toast.info(
+        `${newMsg.senderNickname} ${t("listenTogether.page.chat.mentionedYou") ?? "提到了你"}`,
+      );
     }
   },
 );
@@ -151,7 +159,10 @@ watch(
 /** 截断过长的消息内容（超过1w字显示省略） */
 const truncateContent = (content: string): string => {
   if (content.length <= MAX_MESSAGE_LENGTH) return content;
-  return content.slice(0, MAX_MESSAGE_LENGTH) + `\n[${t("listenTogether.page.chat.truncated") ?? "消息过长，已截断"}]`;
+  return (
+    content.slice(0, MAX_MESSAGE_LENGTH) +
+    `\n[${t("listenTogether.page.chat.truncated") ?? "消息过长，已截断"}]`
+  );
 };
 
 /** 解析消息中的 @ 提及 */
@@ -255,7 +266,8 @@ const handleKeydown = (e: KeyboardEvent): void => {
     mentionIndex.value = (mentionIndex.value + 1) % mentionCandidates.value.length;
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
-    mentionIndex.value = (mentionIndex.value - 1 + mentionCandidates.value.length) % mentionCandidates.value.length;
+    mentionIndex.value =
+      (mentionIndex.value - 1 + mentionCandidates.value.length) % mentionCandidates.value.length;
   } else if (e.key === "Enter" || e.key === "Tab") {
     e.preventDefault();
     const candidate = mentionCandidates.value[mentionIndex.value];
@@ -291,7 +303,10 @@ watch(() => props.messages.length, scrollToBottom);
   <div class="flex flex-col h-full">
     <!-- 聊天消息列表 -->
     <div ref="chatContainerRef" class="flex-1 overflow-y-auto p-4">
-      <div v-if="messages.length === 0" class="flex flex-col items-center justify-center h-full text-on-surface-variant/40 text-sm gap-2">
+      <div
+        v-if="messages.length === 0"
+        class="flex flex-col items-center justify-center h-full text-on-surface-variant/40 text-sm gap-2"
+      >
         <span class="text-4xl opacity-30">💬</span>
         <span>{{ t("listenTogether.page.noMessages") }}</span>
       </div>
@@ -301,24 +316,42 @@ watch(() => props.messages.length, scrollToBottom);
           <!-- 日期分隔线 -->
           <div v-if="showDateDivider(index)" class="flex items-center justify-center my-4">
             <div class="flex-1 h-px bg-outline-variant/20" />
-            <span class="px-3 text-xs text-on-surface-variant/50">{{ formatDateDivider(msg.timestamp) }}</span>
+            <span class="px-3 text-xs text-on-surface-variant/50">
+              {{ formatDateDivider(msg.timestamp) }}
+            </span>
             <div class="flex-1 h-px bg-outline-variant/20" />
           </div>
 
           <!-- 撤回消息：替换为系统提示，不显示原内容 -->
           <div v-if="msg.isRecalled" class="flex justify-center my-2">
-            <span class="text-xs text-on-surface-variant/50 italic px-3 py-1 rounded-full bg-surface-bright/30">
-              {{ msg.senderNickname }} {{ t("listenTogether.page.chat.recalled") ?? "撤回了一条消息" }}
+            <span
+              class="text-xs text-on-surface-variant/50 italic px-3 py-1 rounded-full bg-surface-bright/30"
+            >
+              {{ msg.senderNickname }}
+              {{ t("listenTogether.page.chat.recalled") ?? "撤回了一条消息" }}
             </span>
           </div>
 
           <SContextMenu
             v-else
             :items="[
-              { key: 'reply', label: t('listenTogether.page.chat.reply') ?? '引用', icon: IconLucideTextQuote, show: true },
-              { key: 'recall', label: t('listenTogether.page.chat.recall') ?? '撤回', icon: IconLucideRotateCcw, show: canRecall(msg) },
+              {
+                key: 'reply',
+                label: t('listenTogether.page.chat.reply') ?? '引用',
+                icon: IconLucideTextQuote,
+                show: true,
+              },
+              {
+                key: 'recall',
+                label: t('listenTogether.page.chat.recall') ?? '撤回',
+                icon: IconLucideRotateCcw,
+                show: canRecall(msg),
+              },
             ]"
-            @select="(key) => key === 'reply' ? handleReply(msg) : key === 'recall' ? handleRecall(msg.id) : null"
+            @select="
+              (key) =>
+                key === 'reply' ? handleReply(msg) : key === 'recall' ? handleRecall(msg.id) : null
+            "
           >
             <!-- 消息行：自己=头像在右 别人=头像在左 -->
             <div
@@ -337,7 +370,7 @@ watch(() => props.messages.length, scrollToBottom);
                   class="rounded-full object-cover"
                   :width="MAX_AVATAR_SIZE"
                   :height="MAX_AVATAR_SIZE"
-                  style="width: 32px; height: 32px;"
+                  style="width: 32px; height: 32px"
                   loading="lazy"
                   decoding="async"
                   @error="handleImgError"
@@ -345,7 +378,11 @@ watch(() => props.messages.length, scrollToBottom);
                 <div
                   v-else
                   class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium"
-                  :style="{ backgroundColor: getAvatarColor(msg.senderId) + '20', color: getAvatarColor(msg.senderId), border: `1px solid ${getAvatarColor(msg.senderId)}40` }"
+                  :style="{
+                    backgroundColor: getAvatarColor(msg.senderId) + '20',
+                    color: getAvatarColor(msg.senderId),
+                    border: `1px solid ${getAvatarColor(msg.senderId)}40`,
+                  }"
                 >
                   {{ getAvatarText(msg.senderNickname) }}
                 </div>
@@ -361,8 +398,12 @@ watch(() => props.messages.length, scrollToBottom);
                   class="flex items-center gap-1.5 mb-0.5 px-1"
                   :class="msg.senderId === currentMemberId ? 'flex-row-reverse' : 'flex-row'"
                 >
-                  <span class="text-xs font-medium text-on-surface-variant/70">{{ msg.senderNickname }}</span>
-                  <span class="text-xs text-on-surface-variant/40">{{ formatChatTime(msg.timestamp) }}</span>
+                  <span class="text-xs font-medium text-on-surface-variant/70">
+                    {{ msg.senderNickname }}
+                  </span>
+                  <span class="text-xs text-on-surface-variant/40">
+                    {{ formatChatTime(msg.timestamp) }}
+                  </span>
                 </div>
 
                 <!-- @ 提及提示标签（当消息 @ 了当前用户时显示） -->
@@ -377,23 +418,33 @@ watch(() => props.messages.length, scrollToBottom);
                 <!-- 消息内容气泡（引用条在气泡内部顶部） -->
                 <div
                   class="text-sm leading-snug whitespace-pre-wrap break-words overflow-hidden"
-                  :class="msg.senderId === currentMemberId
-                    ? 'bg-primary text-white rounded-xl rounded-tr-sm shadow-sm shadow-primary/20'
-                    : 'bg-surface-bright text-on-surface rounded-xl rounded-tl-sm border border-outline-variant/10 shadow-sm'"
+                  :class="
+                    msg.senderId === currentMemberId
+                      ? 'bg-primary text-white rounded-xl rounded-tr-sm shadow-sm shadow-primary/20'
+                      : 'bg-surface-bright text-on-surface rounded-xl rounded-tl-sm border border-outline-variant/10 shadow-sm'
+                  "
                 >
                   <!-- 引用内容（微信风格：气泡内顶部灰色引用条 + 左侧竖线） -->
                   <div
                     v-if="msg.replyTo"
                     class="px-3 pt-1.5 pb-0 text-xs border-l-2"
-                    :class="msg.senderId === currentMemberId
-                      ? 'border-white/30 text-white/70'
-                      : 'border-primary/30 text-on-surface-variant/70'"
+                    :class="
+                      msg.senderId === currentMemberId
+                        ? 'border-white/30 text-white/70'
+                        : 'border-primary/30 text-on-surface-variant/70'
+                    "
                   >
                     <div class="flex items-center gap-1 pl-1">
                       <IconLucideTextQuote class="size-3 shrink-0 opacity-60" />
                       <span class="font-semibold truncate">{{ msg.replyTo.senderNickname }}</span>
                       <span class="opacity-50">:</span>
-                      <span class="truncate opacity-60">{{ messages.find((m) => m.id === msg.replyTo?.messageId)?.isRecalled ? (t("listenTogether.page.chat.recalled") ?? "消息已撤回") : msg.replyTo.content }}</span>
+                      <span class="truncate opacity-60">
+                        {{
+                          messages.find((m) => m.id === msg.replyTo?.messageId)?.isRecalled
+                            ? (t("listenTogether.page.chat.recalled") ?? "消息已撤回")
+                            : msg.replyTo.content
+                        }}
+                      </span>
                     </div>
                   </div>
 
@@ -404,8 +455,24 @@ watch(() => props.messages.length, scrollToBottom);
                       <span
                         v-for="(part, i) in msg.content.split(/(@[^\s]+)/g)"
                         :key="i"
-                        :class="part.startsWith('@') && msg.mentions.some((mid) => members.find((m) => m.id === mid)?.nickname === part.slice(1)) ? 'font-semibold underline decoration-2 underline-offset-2' : ''"
-                        :style="part.startsWith('@') ? { textDecorationColor: msg.senderId === currentMemberId ? 'rgba(255,255,255,0.5)' : 'var(--color-primary)' } : {}"
+                        :class="
+                          part.startsWith('@') &&
+                          msg.mentions.some(
+                            (mid) => members.find((m) => m.id === mid)?.nickname === part.slice(1),
+                          )
+                            ? 'font-semibold underline decoration-2 underline-offset-2'
+                            : ''
+                        "
+                        :style="
+                          part.startsWith('@')
+                            ? {
+                                textDecorationColor:
+                                  msg.senderId === currentMemberId
+                                    ? 'rgba(255,255,255,0.5)'
+                                    : 'var(--color-primary)',
+                              }
+                            : {}
+                        "
                       >
                         {{ part }}
                       </span>
@@ -429,7 +496,12 @@ watch(() => props.messages.length, scrollToBottom);
     >
       <IconLucideTextQuote class="size-4 text-primary shrink-0" />
       <span class="text-xs text-on-surface-variant/70 flex-1 truncate">
-        {{ t("listenTogether.page.chat.replyingTo") ?? "引用" }} {{ replyingTo.senderNickname }}: {{ messages.find((m) => m.id === replyingTo?.messageId)?.isRecalled ? (t("listenTogether.page.chat.recalled") ?? "消息已撤回") : replyingTo.content }}
+        {{ t("listenTogether.page.chat.replyingTo") ?? "引用" }} {{ replyingTo.senderNickname }}:
+        {{
+          messages.find((m) => m.id === replyingTo?.messageId)?.isRecalled
+            ? (t("listenTogether.page.chat.recalled") ?? "消息已撤回")
+            : replyingTo.content
+        }}
       </span>
       <button class="text-on-surface-variant/50 hover:text-on-surface" @click="cancelReply">
         <IconLucideX class="size-4" />
@@ -453,7 +525,10 @@ watch(() => props.messages.length, scrollToBottom);
         >
           <div
             class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium"
-            :style="{ backgroundColor: getAvatarColor(member.id) + '20', color: getAvatarColor(member.id) }"
+            :style="{
+              backgroundColor: getAvatarColor(member.id) + '20',
+              color: getAvatarColor(member.id),
+            }"
           >
             {{ getAvatarText(member.nickname) }}
           </div>
@@ -461,7 +536,9 @@ watch(() => props.messages.length, scrollToBottom);
         </div>
       </div>
 
-      <div class="flex items-end gap-2 bg-surface-bright/60 rounded-2xl p-1.5 border border-outline-variant/10 focus-within:border-primary/40 focus-within:bg-surface-bright focus-within:shadow-sm transition-all duration-200">
+      <div
+        class="flex items-end gap-2 bg-surface-bright/60 rounded-2xl p-1.5 border border-outline-variant/10 focus-within:border-primary/40 focus-within:bg-surface-bright focus-within:shadow-sm transition-all duration-200"
+      >
         <SInput
           v-model="chatInput"
           :placeholder="t('listenTogether.page.chatPlaceholder')"

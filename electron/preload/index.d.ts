@@ -93,9 +93,18 @@ declare global {
       };
       update: UpdateApi;
       listenTogether: {
-        createRoom: (nickname: string, neteaseUserId?: number, authKey?: string, roomName?: string) => Promise<
-          { ok: boolean; room?: Record<string, unknown>; roomKey?: string; hostToken?: string; error?: string }
-        >;
+        createRoom: (
+          nickname: string,
+          neteaseUserId?: number,
+          authKey?: string,
+          roomName?: string,
+        ) => Promise<{
+          ok: boolean;
+          room?: Record<string, unknown>;
+          roomKey?: string;
+          hostToken?: string;
+          error?: string;
+        }>;
         closeRoom: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
         getRoom: () => Promise<Record<string, unknown> | null>;
         getRoomKey: () => Promise<string | null>;
@@ -104,7 +113,10 @@ declare global {
         isEnabled: () => Promise<boolean>;
         verifyAuthKey: (key: string) => Promise<boolean>;
         kickMember: (roomId: string, memberId: string) => Promise<{ ok: boolean; error?: string }>;
-        blacklistMember: (roomId: string, memberId: string) => Promise<{ ok: boolean; error?: string }>;
+        blacklistMember: (
+          roomId: string,
+          memberId: string,
+        ) => Promise<{ ok: boolean; error?: string }>;
         decodeInviteCode: (code: string) => Promise<{ roomId: string; roomKey: string } | null>;
       };
     };

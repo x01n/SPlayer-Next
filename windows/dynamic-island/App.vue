@@ -5,7 +5,10 @@ import { DYNAMIC_ISLAND_BASE_HEIGHT } from "@shared/defaults/settings";
 import DEFAULT_COVER from "@/assets/images/song.jpg";
 import IslandLyricLine from "./components/IslandLyricLine.vue";
 import { pickAdvanceOnEndIndex } from "@shared/utils/lyricSync";
-import { useNowPlayingSync, getNowPlayingCurrentMs } from "@windows/shared/composables/useNowPlayingSync";
+import {
+  useNowPlayingSync,
+  getNowPlayingCurrentMs,
+} from "@windows/shared/composables/useNowPlayingSync";
 import { useDragWindow } from "./composables/useDragWindow";
 import { isMac } from "@/utils/config";
 
@@ -94,7 +97,10 @@ const artistsText = computed<string>(
 /** 检测是否为纯音乐占位歌词 */
 const isInstrumentalPlaceholder = (line: LyricLine | null): boolean => {
   if (!line) return false;
-  const text = line.words.map((w) => w.word).join("").trim();
+  const text = line.words
+    .map((w) => w.word)
+    .join("")
+    .trim();
   const instrumentalTexts = ["纯音乐", "instrumental", "无歌词", "no lyrics"];
   return instrumentalTexts.includes(text.toLowerCase());
 };
@@ -180,7 +186,9 @@ const getRendererWindowLimit = (): number =>
     Math.min(MAX_WINDOW_WIDTH, Math.floor(window.screen.width * MAX_WINDOW_WIDTH_RATIO)),
   );
 
-const fixedContentWidth = computed(() => padX.value * 2 + coverSize.value + (config.showCover ? gap.value : 0));
+const fixedContentWidth = computed(
+  () => padX.value * 2 + coverSize.value + (config.showCover ? gap.value : 0),
+);
 const shapeExtraWidth = computed(() => (notchFusionEnabled.value ? SHAPE_SIDE_OVERHANG * 2 : 0));
 
 const maxLyricSlotWidth = computed(() => {
@@ -717,8 +725,13 @@ onBeforeUnmount(() => {
 }
 
 @keyframes progressGlow {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 .notch-shape {
   background: var(--di-bg);

@@ -33,8 +33,7 @@ export const apiKeyGate: MiddlewareHandler = async (c, next) => {
     await next();
     return;
   }
-  const providedKey =
-    c.req.header("X-API-Key") ?? c.req.query("api_key") ?? "";
+  const providedKey = c.req.header("X-API-Key") ?? c.req.query("api_key") ?? "";
   if (providedKey !== configuredKey) {
     return c.json({ error: "invalid API key" }, 403);
   }

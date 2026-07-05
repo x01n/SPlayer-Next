@@ -137,9 +137,7 @@ const handleSearchEnter = (e: KeyboardEvent): void => {
   if (!props.allowCustom || !searchTerm.value.trim()) return;
   const val = searchTerm.value.trim();
   // 若与已有选项完全匹配（忽略大小写），交由 ComboboxRoot 默认处理
-  const exactMatch = props.options.some(
-    (o) => String(o.value).toLowerCase() === val.toLowerCase(),
-  );
+  const exactMatch = props.options.some((o) => String(o.value).toLowerCase() === val.toLowerCase());
   if (exactMatch) return;
   e.preventDefault();
   e.stopPropagation();

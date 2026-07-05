@@ -77,7 +77,9 @@ export const registerListenTogetherIpc = (): void => {
   ipcMain.handle(
     "listenTogether:createRoom",
     (_e, nickname: string, neteaseUserId?: number, authKey?: string, roomName?: string) => {
-      serverLog.info(`[ListenTogether] IPC 创建房间请求, nickname=${nickname}, roomName=${roomName ?? "default"}`);
+      serverLog.info(
+        `[ListenTogether] IPC 创建房间请求, nickname=${nickname}, roomName=${roomName ?? "default"}`,
+      );
       if (!isListenTogetherEnabled()) {
         serverLog.info("[ListenTogether] 创建房间失败: 一起听功能未启用");
         return { ok: false, error: "一起听功能未启用" };
@@ -107,7 +109,9 @@ export const registerListenTogetherIpc = (): void => {
 
         const result = createRoom(nickname, neteaseUserId, roomName);
         localRoom = result;
-        serverLog.info(`[ListenTogether] 房间创建成功, roomId=${localRoom.id}, name=${localRoom.name}`);
+        serverLog.info(
+          `[ListenTogether] 房间创建成功, roomId=${localRoom.id}, name=${localRoom.name}`,
+        );
 
         // 监听播放状态变化，同步到房间并广播
         unsubTrackChange = nowPlaying.onTrackChange(({ track }) => {
@@ -124,20 +128,16 @@ export const registerListenTogetherIpc = (): void => {
           const syncState = getRoomSyncState(localRoom.id);
           if (syncState) {
             // 切歌时重置位置为 0，避免广播旧歌的残余位置
-            setRoomPlayback(
-              localRoom.id,
-              track as Track,
-              0,
-              syncState.isPlaying,
-              localRoom.hostId,
-            );
+            setRoomPlayback(localRoom.id, track as Track, 0, syncState.isPlaying, localRoom.hostId);
             lastPlayingState = syncState.isPlaying;
             broadcastSync(localRoom.id);
           }
         });
 
         unsubPositionSync = nowPlaying.onPositionSync((data) => {
-          serverLog.info(`[ListenTogether] 检测到播放位置同步, position=${data.position}, playing=${data.playing}`);
+          serverLog.info(
+            `[ListenTogether] 检测到播放位置同步, position=${data.position}, playing=${data.playing}`,
+          );
           if (!localRoom) return;
           // 使用 rooms 中的最新 currentTrack，避免 localRoom 副本未同步
           const room = getRoom(localRoom.id);
@@ -175,7 +175,9 @@ export const registerListenTogetherIpc = (): void => {
           hostToken: localRoom.hostToken,
         };
       } catch (err) {
-        serverLog.info(`[ListenTogether] 创建房间异常: ${err instanceof Error ? err.message : String(err)}`);
+        serverLog.info(
+          `[ListenTogether] 创建房间异常: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
@@ -278,7 +280,9 @@ export const registerListenTogetherIpc = (): void => {
       return { ok: false, error: "无权操作此房间" };
     }
     const result = kickMember(roomId, localRoom.hostId, memberId);
-    serverLog.info(`[ListenTogether] 踢出成员结果: ${result}, roomId=${roomId}, memberId=${memberId}`);
+    serverLog.info(
+      `[ListenTogether] 踢出成员结果: ${result}, roomId=${roomId}, memberId=${memberId}`,
+    );
     return { ok: result };
   });
 
@@ -290,7 +294,9 @@ export const registerListenTogetherIpc = (): void => {
       return { ok: false, error: "无权操作此房间" };
     }
     const result = blacklistMember(roomId, localRoom.hostId, memberId);
-    serverLog.info(`[ListenTogether] 拉黑成员结果: ${result}, roomId=${roomId}, memberId=${memberId}`);
+    serverLog.info(
+      `[ListenTogether] 拉黑成员结果: ${result}, roomId=${roomId}, memberId=${memberId}`,
+    );
     return { ok: result };
   });
 
@@ -302,7 +308,9 @@ export const registerListenTogetherIpc = (): void => {
       serverLog.info(`[ListenTogether] 邀请码解码成功: ${JSON.stringify(decoded)}`);
       return decoded;
     } catch (err) {
-      serverLog.info(`[ListenTogether] 邀请码解码失败: ${err instanceof Error ? err.message : String(err)}`);
+      serverLog.info(
+        `[ListenTogether] 邀请码解码失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
   });
@@ -311,13 +319,17 @@ export const registerListenTogetherIpc = (): void => {
 };
 
 /** 获取本地房间 */
-export const getLocalRoom = (): (ListenTogetherRoom & { roomKey: string; hostToken: string }) | null => {
+export const getLocalRoom = ():
+  | (ListenTogetherRoom & { roomKey: string; hostToken: string })
+  | null => {
   serverLog.info(`[ListenTogether] 获取本地房间, localRoom=${localRoom?.id ?? "null"}`);
   return localRoom;
 };
 
 /** 设置本地房间 */
-export const setLocalRoom = (room: (ListenTogetherRoom & { roomKey: string; hostToken: string }) | null): void => {
+export const setLocalRoom = (
+  room: (ListenTogetherRoom & { roomKey: string; hostToken: string }) | null,
+): void => {
   serverLog.info(`[ListenTogether] 设置本地房间, roomId=${room?.id ?? "null"}`);
   localRoom = room;
 };

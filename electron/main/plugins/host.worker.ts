@@ -303,8 +303,7 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
   },
 
   system: {
-    openExternal: (url: string) =>
-      hostCall(record, "system.openExternal", [url]) as Promise<void>,
+    openExternal: (url: string) => hostCall(record, "system.openExternal", [url]) as Promise<void>,
     openPath: (path: string) => hostCall(record, "system.openPath", [path]) as Promise<void>,
   },
 
@@ -333,10 +332,8 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
   panel: {
     show: (panelId: string, html?: string, css?: string, js?: string) =>
       hostCall(record, "panel.show", [panelId, html ?? "", css ?? "", js ?? ""]) as Promise<void>,
-    hide: (panelId: string) =>
-      hostCall(record, "panel.hide", [panelId]) as Promise<void>,
-    close: (panelId: string) =>
-      hostCall(record, "panel.close", [panelId]) as Promise<void>,
+    hide: (panelId: string) => hostCall(record, "panel.hide", [panelId]) as Promise<void>,
+    close: (panelId: string) => hostCall(record, "panel.close", [panelId]) as Promise<void>,
     postMessage: (panelId: string, message: unknown) =>
       hostCall(record, "panel.postMessage", [panelId, message]) as Promise<void>,
     onMessage: (panelId: string, handler: (message: unknown) => void) => {

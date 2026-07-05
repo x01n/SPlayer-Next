@@ -54,7 +54,10 @@ export const clearSpotifyCache = (): void => {
  * @param name  见 modules/index.ts 中的 key（search / song_url）
  * @param params 业务参数；不想命中缓存可传 `timestamp: Date.now()`
  */
-export const callSpotify = async (name: string, params: Record<string, unknown> = {}): Promise<any> => {
+export const callSpotify = async (
+  name: string,
+  params: Record<string, unknown> = {},
+): Promise<any> => {
   // hasOwn 守卫
   const fn = Object.hasOwn(modules, name) ? modules[name] : undefined;
   if (!fn) throw new Error(`unknown spotify api: ${name}`);

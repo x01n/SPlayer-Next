@@ -61,7 +61,10 @@ interface PlaylistsResp {
 }
 
 /** Spotify 封面 URL，根据目标尺寸选择最接近的图片 */
-const pickImage = (images?: Array<{ url: string; height?: number; width?: number }>, targetSize = 300): string | undefined => {
+const pickImage = (
+  images?: Array<{ url: string; height?: number; width?: number }>,
+  targetSize = 300,
+): string | undefined => {
   if (!images || images.length === 0) return undefined;
   // Spotify 返回的图片按尺寸从小到大排列，找最接近 targetSize 的
   let best = images[0];
@@ -115,7 +118,6 @@ const playlistToCover = (playlist: SpotifyPlaylist): CoverItem => ({
   subtitle: playlist.owner?.display_name ?? "",
   trackCount: playlist.tracks?.total ?? 0,
 });
-
 
 export const songs = async (
   keyword: string,

@@ -23,7 +23,7 @@ function base62ToBigInt(encoded: string): bigint {
   for (const c of encoded) {
     const idx = BASE62.indexOf(c);
     if (idx === -1) throw new Error("Invalid base62");
-    value = (value * 62n) + BigInt(idx);
+    value = value * 62n + BigInt(idx);
   }
   return value;
 }
@@ -42,7 +42,7 @@ function base62ToBytes(encoded: string, byteLength: number): Buffer {
   let value = base62ToBigInt(encoded);
   const bytes = Buffer.alloc(byteLength);
   for (let i = byteLength - 1; i >= 0; i--) {
-    bytes[i] = Number(value & 0xFFn);
+    bytes[i] = Number(value & 0xffn);
     value = value >> 8n;
   }
   return bytes;
@@ -64,11 +64,11 @@ function base36ToBytes(str: string, byteLength: number): Buffer {
   for (const c of str) {
     const idx = BASE36.indexOf(c);
     if (idx === -1) throw new Error("Invalid base36");
-    value = (value * 36n) + BigInt(idx);
+    value = value * 36n + BigInt(idx);
   }
   const bytes = Buffer.alloc(byteLength);
   for (let i = byteLength - 1; i >= 0; i--) {
-    bytes[i] = Number(value & 0xFFn);
+    bytes[i] = Number(value & 0xffn);
     value = value >> 8n;
   }
   return bytes;

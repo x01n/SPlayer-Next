@@ -15,7 +15,11 @@ import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 let dynamicIslandWindow: BrowserWindow | null = null;
 
 /** X11 辅助模块（Linux X11 下懒加载，Wayland 下不使用） */
-let x11Helper: { setAlwaysOnTopX11: (wid: number, enable: boolean) => void; setIgnoreMouseEventsX11: (wid: number, ignore: boolean) => void; isX11: () => boolean } | null = null;
+let x11Helper: {
+  setAlwaysOnTopX11: (wid: number, enable: boolean) => void;
+  setIgnoreMouseEventsX11: (wid: number, ignore: boolean) => void;
+  isX11: () => boolean;
+} | null = null;
 
 const getX11Helper = () => {
   if (!isLinux || x11Helper) return x11Helper;
@@ -314,7 +318,9 @@ const syncDynamicIslandState = (): void => {
   const cfg = store.get("dynamicIsland");
   dynamicIslandWindow.setAlwaysOnTop(cfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
   if (isLinux) {
-    dynamicIslandWindow.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, { visibleOnFullScreen: cfg.alwaysOnTop });
+    dynamicIslandWindow.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, {
+      visibleOnFullScreen: cfg.alwaysOnTop,
+    });
   }
   if (!isLinux && cfg.nonOcclusive) {
     dynamicIslandWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -731,7 +737,9 @@ export const saveDynamicIslandState = (): void => {
 /** 创建灵动岛窗口，如果窗口已存在则显示并聚焦 */
 export const createDynamicIslandWindow = (): BrowserWindow => {
   if (isNativeWayland) setupKWinScript();
-  const existing = BrowserWindow.getAllWindows().find(w => w.getTitle() === "Dynamic Island" && !w.isDestroyed());
+  const existing = BrowserWindow.getAllWindows().find(
+    (w) => w.getTitle() === "Dynamic Island" && !w.isDestroyed(),
+  );
   if (existing) {
     dynamicIslandWindow = existing;
     dynamicIslandWindow.show();

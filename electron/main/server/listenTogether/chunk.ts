@@ -19,7 +19,9 @@ const chunkCache = new Map<string, Uint8Array[]>();
  * @param track - 曲目信息
  * @returns 是否是在线音乐
  */
-export const isOnlineTrack = (track: { source?: { type?: string; url?: string } } | null): boolean => {
+export const isOnlineTrack = (
+  track: { source?: { type?: string; url?: string } } | null,
+): boolean => {
   if (!track?.source) return false;
   return track.source.type === "streaming" || track.source.type === "online";
 };
@@ -81,7 +83,11 @@ export const broadcastMusicChunks = async (
   if (!room) return;
 
   // 如果是在线音乐，直接广播URL而不分片
-  if (trackSource && (trackSource.type === "streaming" || trackSource.type === "online") && trackSource.url) {
+  if (
+    trackSource &&
+    (trackSource.type === "streaming" || trackSource.type === "online") &&
+    trackSource.url
+  ) {
     const urlMsg = createOnlineUrlMessage(trackId, trackSource.url);
     broadcastToRoom(roomId, urlMsg, excludeWs);
     serverLog.info(`在线音乐URL广播: ${trackId}, ${trackSource.url}`);

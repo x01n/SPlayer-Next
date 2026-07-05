@@ -426,7 +426,8 @@ export interface SystemConfig {
   /** 流媒体总开关 */
   streaming: StreamingSettings;
   /** Last.fm 集成配置 */
-  lastfm: LastfmSettings;  /** 一起听配置 */  listenTogether: ListenTogetherSettings;
+  lastfm: LastfmSettings;
+  /** 一起听配置 */ listenTogether: ListenTogetherSettings;
   /** 外部 API 服务（HTTP + WS） */
   externalApi: ExternalApiSettings;
   /** 应用更新配置 */

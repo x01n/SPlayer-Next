@@ -157,7 +157,8 @@ const rootStyle = computed(() => ({
   "--dl-unplayed": config.unplayedColor,
   "--dl-stroke": config.strokeColor,
   "--dl-bg": config.backgroundColor !== "rgba(0, 0, 0, 0)" ? config.backgroundColor : undefined,
-  "--dl-bg-hover": config.backgroundColor !== "rgba(0, 0, 0, 0)" ? config.backgroundColor : "rgba(0, 0, 0, 0.5)",
+  "--dl-bg-hover":
+    config.backgroundColor !== "rgba(0, 0, 0, 0)" ? config.backgroundColor : "rgba(0, 0, 0, 0.5)",
   "--dl-mask": config.backgroundMaskColor,
   "--dl-anim": config.animation ? "0.4s" : "0s",
   "--dl-line-spacing": `${config.lineSpacing}px`,

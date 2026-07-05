@@ -361,13 +361,13 @@ const api = {
     getRoom: () => ipcRenderer.invoke("listenTogether:getRoom"),
     getRoomKey: () => ipcRenderer.invoke("listenTogether:getRoomKey"),
     getShareLink: (roomId: string) => ipcRenderer.invoke("listenTogether:getShareLink", roomId),
-    getRawShareLink: (roomId: string) => ipcRenderer.invoke("listenTogether:getRawShareLink", roomId),
+    getRawShareLink: (roomId: string) =>
+      ipcRenderer.invoke("listenTogether:getRawShareLink", roomId),
     isEnabled: () => ipcRenderer.invoke("listenTogether:isEnabled"),
     verifyAuthKey: (key: string) => ipcRenderer.invoke("listenTogether:verifyAuthKey", key),
     kickMember: (roomId: string, memberId: string) =>
       ipcRenderer.invoke("listenTogether:kickMember", roomId, memberId),
-    decodeInviteCode: (code: string) =>
-      ipcRenderer.invoke("listenTogether:decodeInviteCode", code),
+    decodeInviteCode: (code: string) => ipcRenderer.invoke("listenTogether:decodeInviteCode", code),
   },
 };
 

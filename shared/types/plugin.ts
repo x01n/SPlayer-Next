@@ -35,7 +35,16 @@ export const PLUGIN_TYPES = ["source", "control", "panel", "service"] as const;
 export type PluginType = (typeof PLUGIN_TYPES)[number];
 
 /** 插件可声明的权限清单 */
-export const PLUGIN_GRANTS = ["network", "control", "ui", "notification", "clipboard", "system", "dialog", "webview"] as const;
+export const PLUGIN_GRANTS = [
+  "network",
+  "control",
+  "ui",
+  "notification",
+  "clipboard",
+  "system",
+  "dialog",
+  "webview",
+] as const;
 /** 插件权限：network 联网 / control 控制播放器 / ui 扩展界面 / notification 系统通知 / clipboard 剪贴板 / system 系统交互 / dialog 文件对话框 / webview 面板渲染 */
 export type PluginGrant = (typeof PLUGIN_GRANTS)[number];
 
@@ -55,7 +64,15 @@ export interface PlaybackEventData {
 }
 
 /** 控制类插件注册的配置项类型（安全子集） */
-export type PluginSettingType = "switch" | "number" | "text" | "select" | "textarea" | "color" | "password" | "slider";
+export type PluginSettingType =
+  | "switch"
+  | "number"
+  | "text"
+  | "select"
+  | "textarea"
+  | "color"
+  | "password"
+  | "slider";
 
 /** 控制类插件注册的单个配置项 */
 export interface PluginSettingItem {
@@ -370,7 +387,7 @@ export interface HostStorage {
   keys: () => Promise<string[]>;
 }
 
-  /** 系统通知选项 */
+/** 系统通知选项 */
 export interface NotificationOptions {
   title: string;
   body?: string;

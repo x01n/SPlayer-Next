@@ -159,21 +159,27 @@ export const registerPluginIpc = (): void => {
   });
 
   // 面板管理 IPC
-  ipcMain.handle("plugin:showPanel", async (_evt, args: { pluginId: string; panelId: string; html?: string; css?: string; js?: string }) => {
-    try {
-      await panelManager.showPanel(
-        args.pluginId,
-        args.panelId,
-        args.html ?? "",
-        args.css ?? "",
-        args.js ?? "",
-      );
-      return { ok: true };
-    } catch (err) {
-      coreLog.warn("[plugin] showPanel failed:", err);
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
+  ipcMain.handle(
+    "plugin:showPanel",
+    async (
+      _evt,
+      args: { pluginId: string; panelId: string; html?: string; css?: string; js?: string },
+    ) => {
+      try {
+        await panelManager.showPanel(
+          args.pluginId,
+          args.panelId,
+          args.html ?? "",
+          args.css ?? "",
+          args.js ?? "",
+        );
+        return { ok: true };
+      } catch (err) {
+        coreLog.warn("[plugin] showPanel failed:", err);
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 
   ipcMain.handle("plugin:hidePanel", async (_evt, args: { pluginId: string; panelId: string }) => {
     panelManager.hidePanel(args.pluginId, args.panelId);
@@ -183,19 +189,25 @@ export const registerPluginIpc = (): void => {
     panelManager.closePanel(args.pluginId, args.panelId);
   });
 
-  ipcMain.handle("plugin:postPanelMessage", async (_evt, args: { pluginId: string; panelId: string; message: unknown }) => {
-    panelManager.postMessage(args.pluginId, args.panelId, args.message);
-  });
+  ipcMain.handle(
+    "plugin:postPanelMessage",
+    async (_evt, args: { pluginId: string; panelId: string; message: unknown }) => {
+      panelManager.postMessage(args.pluginId, args.panelId, args.message);
+    },
+  );
 
   ipcMain.handle("plugin:listPanels", () => {
     return pluginRegistry.listPanels();
   });
 
   // 接收面板窗口发回的消息，转发给对应插件沙箱，并广播给渲染端
-  ipcMain.on("plugin-panel-post", (_evt, args: { pluginId: string; panelId: string; message: unknown }) => {
-    pluginHost.sendPanelMessage(args.pluginId, args.panelId, args.message);
-    broadcast("plugin:panel-message", args);
-  });
+  ipcMain.on(
+    "plugin-panel-post",
+    (_evt, args: { pluginId: string; panelId: string; message: unknown }) => {
+      pluginHost.sendPanelMessage(args.pluginId, args.panelId, args.message);
+      broadcast("plugin:panel-message", args);
+    },
+  );
 
   // 状态变化广播
   pluginRegistry.on("status", (info: PluginInfo) => {

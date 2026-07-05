@@ -97,8 +97,15 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
    * @param authKey - 鉴权密钥（可选，覆盖设置中的值）
    * @returns 是否创建成功
    */
-  const createRoom = async (name: string, neteaseUserId?: number, roomName?: string, authKey?: string): Promise<boolean> => {
-    console.log(`[ListenTogether] 开始创建房间, name=${name}, neteaseUserId=${neteaseUserId ?? "null"}, roomName=${roomName ?? "default"}`);
+  const createRoom = async (
+    name: string,
+    neteaseUserId?: number,
+    roomName?: string,
+    authKey?: string,
+  ): Promise<boolean> => {
+    console.log(
+      `[ListenTogether] 开始创建房间, name=${name}, neteaseUserId=${neteaseUserId ?? "null"}, roomName=${roomName ?? "default"}`,
+    );
     try {
       const effectiveAuthKey = authKey || (await window.api.config.get("listenTogether.authKey"));
       console.log("[ListenTogether] 已获取 authKey");
@@ -118,7 +125,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       roomKey.value = result.roomKey || "";
       hostToken.value = result.hostToken || "";
       isHost.value = true;
-      console.log(`[ListenTogether] 房间创建成功, roomId=${roomId.value}, roomKey=${roomKey.value}`);
+      console.log(
+        `[ListenTogether] 房间创建成功, roomId=${roomId.value}, roomKey=${roomKey.value}`,
+      );
 
       // 房主也需要通过WS加入自己的房间
       const port = (await window.api.config.get("externalApi.port")) || 14558;
@@ -128,7 +137,14 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       console.log(`[ListenTogether] 房主准备连接WebSocket, url=${url}, port=${port}`);
 
       // 使用hostToken作为roomKey加入WS
-      const success = await lt.connect(url, port as number, roomId.value, hostToken.value, name, neteaseUserId);
+      const success = await lt.connect(
+        url,
+        port as number,
+        roomId.value,
+        hostToken.value,
+        name,
+        neteaseUserId,
+      );
       if (success) {
         connectionState.value = "connected";
         setupListeners();
@@ -218,8 +234,14 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
    * @param replyTo - 引用的消息（可选）
    * @param mentions - @的成员ID列表（可选）
    */
-  const sendChat = async (content: string, replyTo?: ListenTogetherChatMessage["replyTo"], mentions?: string[]): Promise<void> => {
-    console.log(`[ListenTogether] 发送聊天消息: ${content}, replyTo=${replyTo?.messageId ?? "null"}, mentions=${mentions?.length ?? 0}`);
+  const sendChat = async (
+    content: string,
+    replyTo?: ListenTogetherChatMessage["replyTo"],
+    mentions?: string[],
+  ): Promise<void> => {
+    console.log(
+      `[ListenTogether] 发送聊天消息: ${content}, replyTo=${replyTo?.messageId ?? "null"}, mentions=${mentions?.length ?? 0}`,
+    );
     await lt.sendChat(content, replyTo, mentions);
   };
 
@@ -248,7 +270,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
    */
   const syncPlayback = (track: Track | null, position: number, isPlaying: boolean): void => {
     if (isHost.value) {
-      console.log(`[ListenTogether] 发送播放同步, trackId=${track?.id ?? "null"}, position=${position}, isPlaying=${isPlaying}`);
+      console.log(
+        `[ListenTogether] 发送播放同步, trackId=${track?.id ?? "null"}, position=${position}, isPlaying=${isPlaying}`,
+      );
       lt.sendSync(track, position, isPlaying);
     }
   };
@@ -271,7 +295,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     }
 
     lt.onRoomUpdate((updatedRoom) => {
-      console.log(`[ListenTogether] 房间信息更新, controllerId=${updatedRoom?.controllerId ?? "null"}, memberCount=${updatedRoom?.members.length ?? 0}`);
+      console.log(
+        `[ListenTogether] 房间信息更新, controllerId=${updatedRoom?.controllerId ?? "null"}, memberCount=${updatedRoom?.members.length ?? 0}`,
+      );
       room.value = updatedRoom;
       if (updatedRoom) {
         controllerId.value = updatedRoom.controllerId;
@@ -280,7 +306,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     });
 
     lt.onSync((syncState) => {
-      console.log(`[ListenTogether] 收到播放同步, trackId=${syncState.track?.id ?? "null"}, position=${syncState.position}, isPlaying=${syncState.isPlaying}, senderId=${syncState.senderId}`);
+      console.log(
+        `[ListenTogether] 收到播放同步, trackId=${syncState.track?.id ?? "null"}, position=${syncState.position}, isPlaying=${syncState.isPlaying}, senderId=${syncState.senderId}`,
+      );
       // 非房主接收同步状态时执行播放器操作
       if (!isHost.value) {
         void executeSync(syncState);
@@ -288,7 +316,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     });
 
     lt.onChat((message) => {
-      console.log(`[ListenTogether] 收到聊天消息, sender=${message.senderNickname}, content=${message.content}`);
+      console.log(
+        `[ListenTogether] 收到聊天消息, sender=${message.senderNickname}, content=${message.content}`,
+      );
       chatMessages.value.push(message);
     });
 
@@ -298,7 +328,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     });
 
     lt.onProposal((proposal) => {
-      console.log(`[ListenTogether] 收到提案, id=${proposal.id}, type=${proposal.type}, proposerId=${proposal.proposerId}`);
+      console.log(
+        `[ListenTogether] 收到提案, id=${proposal.id}, type=${proposal.type}, proposerId=${proposal.proposerId}`,
+      );
       activeProposals.value.push(proposal);
       // 如果是房主收到的提案且已执行，立即清理
       if (proposal.executed) {
@@ -309,7 +341,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     });
 
     lt.onVoteUpdate((data) => {
-      console.log(`[ListenTogether] 投票更新, proposalId=${data.proposalId}, memberId=${data.memberId}, agree=${data.agree}`);
+      console.log(
+        `[ListenTogether] 投票更新, proposalId=${data.proposalId}, memberId=${data.memberId}, agree=${data.agree}`,
+      );
       const p = activeProposals.value.find((ap) => ap.id === data.proposalId);
       if (p) {
         p.votes[data.memberId] = data.agree;
@@ -370,21 +404,29 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     });
 
     lt.onSearchShared((share) => {
-      console.log(`[ListenTogether] 搜索共享, platform=${share.platform}, keyword=${share.keyword}`);
+      console.log(
+        `[ListenTogether] 搜索共享, platform=${share.platform}, keyword=${share.keyword}`,
+      );
       searchShares.value.push(share);
     });
 
     lt.onReaction((reaction) => {
-      console.log(`[ListenTogether] 表情反应, emoji=${reaction.emoji}, sender=${reaction.senderNickname}`);
+      console.log(
+        `[ListenTogether] 表情反应, emoji=${reaction.emoji}, sender=${reaction.senderNickname}`,
+      );
       reactions.value.push(reaction);
       // 3秒后自动移除旧反应
       setTimeout(() => {
-        reactions.value = reactions.value.filter((r) => r.timestamp !== reaction.timestamp || r.senderId !== reaction.senderId);
+        reactions.value = reactions.value.filter(
+          (r) => r.timestamp !== reaction.timestamp || r.senderId !== reaction.senderId,
+        );
       }, 3000);
     });
 
     lt.onBestAudioSource((source) => {
-      console.log(`[ListenTogether] 收到最优音源: memberId=${source.memberId}, quality=${source.quality}, type=${source.sourceType}`);
+      console.log(
+        `[ListenTogether] 收到最优音源: memberId=${source.memberId}, quality=${source.quality}, type=${source.sourceType}`,
+      );
       bestAudioSource.value = source;
     });
 
@@ -394,15 +436,21 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     });
 
     lt.onMessageRecalled((data) => {
-      console.log(`[ListenTogether] 收到消息撤回事件: messageId=${data.messageId}, recalledBy=${data.recalledBy}`);
+      console.log(
+        `[ListenTogether] 收到消息撤回事件: messageId=${data.messageId}, recalledBy=${data.recalledBy}`,
+      );
       const targetMsg = chatMessages.value.find((m) => m.id === data.messageId);
       if (targetMsg) {
         targetMsg.isRecalled = true;
         targetMsg.recalledAt = Date.now();
         targetMsg.recalledBy = data.recalledBy;
-        console.log(`[ListenTogether] 消息已标记为撤回: messageId=${data.messageId}, index=${chatMessages.value.indexOf(targetMsg)}`);
+        console.log(
+          `[ListenTogether] 消息已标记为撤回: messageId=${data.messageId}, index=${chatMessages.value.indexOf(targetMsg)}`,
+        );
       } else {
-        console.log(`[ListenTogether] 消息撤回事件未找到对应消息: messageId=${data.messageId}, 当前消息总数=${chatMessages.value.length}`);
+        console.log(
+          `[ListenTogether] 消息撤回事件未找到对应消息: messageId=${data.messageId}, 当前消息总数=${chatMessages.value.length}`,
+        );
       }
     });
 
@@ -452,7 +500,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
         const delta = Math.abs(position - lastSyncPosition);
         const timeSinceLast = now - lastSyncPositionTime;
         if (delta > SYNC_SEEK_THRESHOLD || timeSinceLast > SYNC_POSITION_INTERVAL) {
-          console.log(`[ListenTogether] 自动同步: 位置变化 position=${position}, delta=${delta}, timeSinceLast=${timeSinceLast}`);
+          console.log(
+            `[ListenTogether] 自动同步: 位置变化 position=${position}, delta=${delta}, timeSinceLast=${timeSinceLast}`,
+          );
           lastSyncPosition = position;
           lastSyncPositionTime = now;
           syncPlayback(media.track, position, status.isPlaying);
@@ -515,7 +565,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     const currentPos = playback.getCurrentTime();
     const diff = currentPos - targetPos;
 
-    console.log(`[ListenTogether] 位置同步检查: currentPos=${currentPos.toFixed(0)}, targetPos=${targetPos.toFixed(0)}, diff=${diff.toFixed(0)}ms, latency=${compensatedLatency.toFixed(0)}ms, offset=${offset.toFixed(0)}ms`);
+    console.log(
+      `[ListenTogether] 位置同步检查: currentPos=${currentPos.toFixed(0)}, targetPos=${targetPos.toFixed(0)}, diff=${diff.toFixed(0)}ms, latency=${compensatedLatency.toFixed(0)}ms, offset=${offset.toFixed(0)}ms`,
+    );
 
     // 偏差在忽略阈值内，不做任何调整，避免频繁 seek 造成跳动
     if (Math.abs(diff) <= SYNC_IGNORE_THRESHOLD) {
@@ -524,9 +576,12 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     }
 
     // 偏差超过强制 seek 阈值，或上次 seek 已经超过最小间隔，才执行 seek
-    const canSeek = Math.abs(diff) > SYNC_SEEK_THRESHOLD || (Date.now() - lastSeekAt > SYNC_MIN_SEEK_INTERVAL);
+    const canSeek =
+      Math.abs(diff) > SYNC_SEEK_THRESHOLD || Date.now() - lastSeekAt > SYNC_MIN_SEEK_INTERVAL;
     if (!canSeek) {
-      console.log(`[ListenTogether] 位置偏差未达强制阈值，且距离上次 seek 过近，跳过 seek (diff=${diff.toFixed(0)}ms)`);
+      console.log(
+        `[ListenTogether] 位置偏差未达强制阈值，且距离上次 seek 过近，跳过 seek (diff=${diff.toFixed(0)}ms)`,
+      );
       return;
     }
 
@@ -535,7 +590,6 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     lastSeekAt = Date.now();
     console.log(`[ListenTogether] 同步执行 seek(${targetPos}), 偏差=${diff.toFixed(0)}ms`);
   };
-
 
   /** 执行提案操作（非房主） */
   const executeProposal = (payload: { type: string; data: unknown }): void => {
@@ -587,7 +641,11 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
    * @param keyword - 搜索关键词
    * @param results - 搜索结果
    */
-  const sendSearchShare = async (platform: string, keyword: string, results: unknown): Promise<void> => {
+  const sendSearchShare = async (
+    platform: string,
+    keyword: string,
+    results: unknown,
+  ): Promise<void> => {
     console.log(`[ListenTogether] 发送搜索共享: platform=${platform}, keyword=${keyword}`);
     await lt.sendSearchShare(platform, keyword, results);
   };
@@ -604,7 +662,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
    * @param source - 音源信息
    */
   const reportAudioSource = async (source: ListenTogetherAudioSource): Promise<void> => {
-    console.log(`[ListenTogether] 报告音源: trackId=${source.trackId}, quality=${source.quality}, type=${source.sourceType}`);
+    console.log(
+      `[ListenTogether] 报告音源: trackId=${source.trackId}, quality=${source.quality}, type=${source.sourceType}`,
+    );
     await lt.sendAudioSource(source);
   };
 

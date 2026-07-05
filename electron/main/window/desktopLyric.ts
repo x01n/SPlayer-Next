@@ -13,9 +13,12 @@ import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 
 let desktopLyricWindow: BrowserWindow | null = null;
 
-
 /** X11 辅助模块（Linux X11 下懒加载，Wayland 下不使用） */
-let x11Helper: { setAlwaysOnTopX11: (wid: number, enable: boolean) => void; setIgnoreMouseEventsX11: (wid: number, ignore: boolean) => void; isX11: () => boolean } | null = null;
+let x11Helper: {
+  setAlwaysOnTopX11: (wid: number, enable: boolean) => void;
+  setIgnoreMouseEventsX11: (wid: number, ignore: boolean) => void;
+  isX11: () => boolean;
+} | null = null;
 
 const getX11Helper = () => {
   if (!isLinux || x11Helper) return x11Helper;
@@ -140,11 +143,7 @@ const runKWinScript = (body: string): void => {
     const scriptDir = join(app.getPath("userData"), "app-data", "kwin-scripts");
     const scriptPath = join(scriptDir, `splayer-kwin-${Date.now()}.js`);
     if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
-    writeFileSync(
-      scriptPath,
-      `function init() { ${body} }`,
-      "utf-8",
-    );
+    writeFileSync(scriptPath, `function init() { ${body} }`, "utf-8");
     runKWinScriptCommand(scriptPath);
     try {
       unlinkSync(scriptPath);
@@ -245,7 +244,9 @@ const syncDesktopLyricState = (): void => {
   const cfg = store.get("desktopLyric");
   desktopLyricWindow.setAlwaysOnTop(cfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
   if (isLinux) {
-    desktopLyricWindow.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, { visibleOnFullScreen: cfg.alwaysOnTop });
+    desktopLyricWindow.setVisibleOnAllWorkspaces(cfg.alwaysOnTop, {
+      visibleOnFullScreen: cfg.alwaysOnTop,
+    });
   }
   if (!isLinux && cfg.locked) {
     desktopLyricWindow.setIgnoreMouseEvents(true, { forward: true });

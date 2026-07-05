@@ -75,7 +75,11 @@ const generateCryptoKey = (): string => {
  * @param roomName - 房间名称（可选，覆盖默认设置）
  * @returns 创建的Room对象（包含roomKey和hostToken）
  */
-export const createRoom = (hostNickname: string, hostNeteaseUserId?: number, roomName?: string): ListenTogetherRoom & { roomKey: string; hostToken: string } => {
+export const createRoom = (
+  hostNickname: string,
+  hostNeteaseUserId?: number,
+  roomName?: string,
+): ListenTogetherRoom & { roomKey: string; hostToken: string } => {
   serverLog.info(`[ListenTogether] 开始创建房间，房主昵称: ${hostNickname}`);
   const roomId = generateRoomId();
   const hostId = randomUUID();
@@ -115,7 +119,9 @@ export const createRoom = (hostNickname: string, hostNeteaseUserId?: number, roo
   // 房主token也注册到tokenMap，但暂不关联WS（WS连接时通过hostToken识别）
   tokenMap.set(hostToken, { roomId, memberId: hostId });
 
-  serverLog.info(`[ListenTogether] 一起听房间已创建: ${roomId}, 房主: ${hostNickname}, 成员数: ${room.members.length}`);
+  serverLog.info(
+    `[ListenTogether] 一起听房间已创建: ${roomId}, 房主: ${hostNickname}, 成员数: ${room.members.length}`,
+  );
 
   return { ...room, roomKey, hostToken };
 };
@@ -220,7 +226,9 @@ export const joinRoom = (
     tokenMap.set(wsToken, { roomId, memberId: room.hostId });
     hostMember.lastActiveAt = Date.now();
 
-    serverLog.info(`[ListenTogether] 房主重新加入房间成功: ${roomId}, ${nickname}, token: ${wsToken.slice(0, 8)}...`);
+    serverLog.info(
+      `[ListenTogether] 房主重新加入房间成功: ${roomId}, ${nickname}, token: ${wsToken.slice(0, 8)}...`,
+    );
     return { ok: true, token: wsToken, room, cryptoKey: room.cryptoKey, memberId: room.hostId };
   }
 
@@ -246,13 +254,17 @@ export const joinRoom = (
   room.members.push(member);
   tokenMap.set(token, { roomId, memberId });
 
-  serverLog.info(`[ListenTogether] 成员加入房间成功: ${roomId}, ${nickname}, 当前成员数: ${room.members.length}`);
+  serverLog.info(
+    `[ListenTogether] 成员加入房间成功: ${roomId}, ${nickname}, 当前成员数: ${room.members.length}`,
+  );
 
   return { ok: true, token, room, cryptoKey: room.cryptoKey, memberId };
 };
 
 /** 离开房间 */
-export const leaveRoom = (token: string): { roomId: string; memberId: string; wasHost: boolean } | null => {
+export const leaveRoom = (
+  token: string,
+): { roomId: string; memberId: string; wasHost: boolean } | null => {
   serverLog.info(`[ListenTogether] 成员尝试离开房间，token: ${token.slice(0, 8)}...`);
   const info = tokenMap.get(token);
   if (!info) {
@@ -277,7 +289,9 @@ export const leaveRoom = (token: string): { roomId: string; memberId: string; wa
 
   if (!isHostToken) {
     room.members = room.members.filter((m) => m.id !== memberId);
-    serverLog.info(`[ListenTogether] 成员从房间移除: ${roomId}, ${memberId}, 剩余成员数: ${room.members.length}`);
+    serverLog.info(
+      `[ListenTogether] 成员从房间移除: ${roomId}, ${memberId}, 剩余成员数: ${room.members.length}`,
+    );
   } else {
     serverLog.info(`[ListenTogether] 房主WS会话断开，保留房主成员: ${roomId}`);
   }
@@ -313,7 +327,9 @@ export const leaveRoom = (token: string): { roomId: string; memberId: string; wa
 
 /** 踢出成员 */
 export const kickMember = (roomId: string, hostId: string, memberId: string): boolean => {
-  serverLog.info(`[ListenTogether] 尝试踢出成员: ${roomId}, 操作者: ${hostId}, 目标成员: ${memberId}`);
+  serverLog.info(
+    `[ListenTogether] 尝试踢出成员: ${roomId}, 操作者: ${hostId}, 目标成员: ${memberId}`,
+  );
   const room = rooms.get(roomId);
   if (!room) {
     serverLog.info(`[ListenTogether] 踢出成员失败，房间不存在: ${roomId}`);
@@ -344,13 +360,17 @@ export const kickMember = (roomId: string, hostId: string, memberId: string): bo
     }
   }
 
-  serverLog.info(`[ListenTogether] 成员被踢出房间: ${roomId}, ${member.nickname}, 剩余成员数: ${room.members.length}`);
+  serverLog.info(
+    `[ListenTogether] 成员被踢出房间: ${roomId}, ${member.nickname}, 剩余成员数: ${room.members.length}`,
+  );
   return true;
 };
 
 /** 拉黑成员 */
 export const blacklistMember = (roomId: string, hostId: string, memberId: string): boolean => {
-  serverLog.info(`[ListenTogether] 尝试拉黑成员: ${roomId}, 操作者: ${hostId}, 目标成员: ${memberId}`);
+  serverLog.info(
+    `[ListenTogether] 尝试拉黑成员: ${roomId}, 操作者: ${hostId}, 目标成员: ${memberId}`,
+  );
   const room = rooms.get(roomId);
   if (!room) {
     serverLog.info(`[ListenTogether] 拉黑成员失败，房间不存在: ${roomId}`);
@@ -422,7 +442,9 @@ export const setRoomPlayback = (
   isPlaying: boolean,
   controllerId: string,
 ): void => {
-  serverLog.info(`[ListenTogether] 设置房间播放状态: ${roomId}, 播放: ${isPlaying}, 位置: ${position}, 控制者: ${controllerId}`);
+  serverLog.info(
+    `[ListenTogether] 设置房间播放状态: ${roomId}, 播放: ${isPlaying}, 位置: ${position}, 控制者: ${controllerId}`,
+  );
   const room = rooms.get(roomId);
   if (!room) {
     serverLog.info(`[ListenTogether] 设置播放状态失败，房间不存在: ${roomId}`);
@@ -433,7 +455,9 @@ export const setRoomPlayback = (
   room.position = position;
   room.state = isPlaying ? "playing" : "paused";
   room.controllerId = controllerId;
-  serverLog.info(`[ListenTogether] 房间播放状态已更新: ${roomId}, 状态: ${room.state}, 曲目: ${track?.title || "null"}`);
+  serverLog.info(
+    `[ListenTogether] 房间播放状态已更新: ${roomId}, 状态: ${room.state}, 曲目: ${track?.title || "null"}`,
+  );
 };
 
 /** 获取房间播放同步状态 */
@@ -444,7 +468,9 @@ export const getRoomSyncState = (roomId: string): ListenTogetherSyncState | null
     return null;
   }
 
-  serverLog.info(`[ListenTogether] 获取房间同步状态: ${roomId}, 状态: ${room.state}, 位置: ${room.position}`);
+  serverLog.info(
+    `[ListenTogether] 获取房间同步状态: ${roomId}, 状态: ${room.state}, 位置: ${room.position}`,
+  );
   return {
     track: room.currentTrack,
     position: room.position,
@@ -455,11 +481,10 @@ export const getRoomSyncState = (roomId: string): ListenTogetherSyncState | null
 };
 
 /** 添加聊天消息 */
-export const addChatMessage = (
-  roomId: string,
-  message: ListenTogetherChatMessage,
-): number => {
-  serverLog.info(`[ListenTogether] 添加聊天消息: ${roomId}, 发送者: ${message.senderId}, 内容长度: ${message.content?.length || 0}`);
+export const addChatMessage = (roomId: string, message: ListenTogetherChatMessage): number => {
+  serverLog.info(
+    `[ListenTogether] 添加聊天消息: ${roomId}, 发送者: ${message.senderId}, 内容长度: ${message.content?.length || 0}`,
+  );
   const history = chatHistory.get(roomId);
   if (!history) {
     serverLog.info(`[ListenTogether] 添加聊天消息失败，房间聊天记录不存在: ${roomId}`);
@@ -474,7 +499,9 @@ export const addChatMessage = (
   if (history.length > MAX_CHAT_HISTORY) {
     history.shift();
   }
-  serverLog.info(`[ListenTogether] 聊天消息已添加: ${roomId}, seqId=${nextSeq}, 当前历史消息数: ${history.length}`);
+  serverLog.info(
+    `[ListenTogether] 聊天消息已添加: ${roomId}, seqId=${nextSeq}, 当前历史消息数: ${history.length}`,
+  );
   return nextSeq;
 };
 /** 获取聊天历史 */
@@ -515,9 +542,13 @@ export const createProposal = (
   if (proposerId === room.hostId) {
     proposal.votes[proposerId] = true;
     proposal.executed = true;
-    serverLog.info(`[ListenTogether] 房主提案直接通过: ${roomId}, 提案ID: ${proposal.id}, 类型: ${type}`);
+    serverLog.info(
+      `[ListenTogether] 房主提案直接通过: ${roomId}, 提案ID: ${proposal.id}, 类型: ${type}`,
+    );
   } else {
-    serverLog.info(`[ListenTogether] 提案创建成功，等待投票: ${roomId}, 提案ID: ${proposal.id}, 类型: ${type}, 截止: ${proposal.voteDeadline}`);
+    serverLog.info(
+      `[ListenTogether] 提案创建成功，等待投票: ${roomId}, 提案ID: ${proposal.id}, 类型: ${type}, 截止: ${proposal.voteDeadline}`,
+    );
   }
 
   return proposal;
@@ -525,7 +556,9 @@ export const createProposal = (
 
 /** 投票 */
 export const voteOnProposal = (proposalId: string, memberId: string, agree: boolean): boolean => {
-  serverLog.info(`[ListenTogether] 成员投票: 提案ID: ${proposalId}, 成员: ${memberId}, 同意: ${agree}`);
+  serverLog.info(
+    `[ListenTogether] 成员投票: 提案ID: ${proposalId}, 成员: ${memberId}, 同意: ${agree}`,
+  );
   const proposal = activeProposals.get(proposalId);
   if (!proposal) {
     serverLog.info(`[ListenTogether] 投票失败，提案不存在: ${proposalId}`);
@@ -555,15 +588,21 @@ export const voteOnProposal = (proposalId: string, memberId: string, agree: bool
   }
 
   const votedCount = Object.keys(proposal.votes).length;
-  serverLog.info(`[ListenTogether] 投票统计: 提案ID: ${proposalId}, 已投票: ${votedCount}/${room.members.length}`);
+  serverLog.info(
+    `[ListenTogether] 投票统计: 提案ID: ${proposalId}, 已投票: ${votedCount}/${room.members.length}`,
+  );
   if (votedCount >= room.members.length) {
     const agreeCount = Object.values(proposal.votes).filter((v) => v).length;
     const passed = agreeCount > room.members.length / 2;
     if (passed) {
       proposal.executed = true;
-      serverLog.info(`[ListenTogether] 提案投票通过: ${proposalId}, 同意: ${agreeCount}/${room.members.length}`);
+      serverLog.info(
+        `[ListenTogether] 提案投票通过: ${proposalId}, 同意: ${agreeCount}/${room.members.length}`,
+      );
     } else {
-      serverLog.info(`[ListenTogether] 提案投票未通过: ${proposalId}, 同意: ${agreeCount}/${room.members.length}`);
+      serverLog.info(
+        `[ListenTogether] 提案投票未通过: ${proposalId}, 同意: ${agreeCount}/${room.members.length}`,
+      );
     }
     return passed;
   }
@@ -681,7 +720,9 @@ export const broadcastToRoom = (roomId: string, message: unknown, excludeWs?: WS
       }
     }
   }
-  serverLog.info(`[ListenTogether] 广播完成: ${roomId}, 发送成功: ${sentCount}/${room.members.length}`);
+  serverLog.info(
+    `[ListenTogether] 广播完成: ${roomId}, 发送成功: ${sentCount}/${room.members.length}`,
+  );
 };
 
 /** 发送消息给指定成员 */
@@ -740,7 +781,9 @@ export const applyQueueAction = (
   action: string,
   data: unknown,
 ): ListenTogetherQueueItem[] | null => {
-  serverLog.info(`[ListenTogether] 应用队列操作: roomId=${roomId}, action=${action}, memberId=${memberId}`);
+  serverLog.info(
+    `[ListenTogether] 应用队列操作: roomId=${roomId}, action=${action}, memberId=${memberId}`,
+  );
   const room = rooms.get(roomId);
   if (!room) {
     serverLog.info(`[ListenTogether] 队列操作失败，房间不存在: ${roomId}`);
@@ -755,17 +798,23 @@ export const applyQueueAction = (
         return null;
       }
       room.queue.push({ track, addedBy: memberId, addedAt: Date.now() });
-      serverLog.info(`[ListenTogether] 队列添加成功: roomId=${roomId}, trackId=${track.id}, 队列长度=${room.queue.length}`);
+      serverLog.info(
+        `[ListenTogether] 队列添加成功: roomId=${roomId}, trackId=${track.id}, 队列长度=${room.queue.length}`,
+      );
       return room.queue;
     }
     case "remove": {
       const index = (data as { index?: number })?.index ?? -1;
       if (index < 0 || index >= room.queue.length) {
-        serverLog.info(`[ListenTogether] 队列移除失败，索引越界: index=${index}, length=${room.queue.length}`);
+        serverLog.info(
+          `[ListenTogether] 队列移除失败，索引越界: index=${index}, length=${room.queue.length}`,
+        );
         return null;
       }
       room.queue.splice(index, 1);
-      serverLog.info(`[ListenTogether] 队列移除成功: roomId=${roomId}, index=${index}, 队列长度=${room.queue.length}`);
+      serverLog.info(
+        `[ListenTogether] 队列移除成功: roomId=${roomId}, index=${index}, 队列长度=${room.queue.length}`,
+      );
       return room.queue;
     }
     case "clear": {
@@ -777,7 +826,9 @@ export const applyQueueAction = (
       const from = (data as { from?: number })?.from ?? -1;
       const to = (data as { to?: number })?.to ?? -1;
       if (from < 0 || from >= room.queue.length || to < 0 || to >= room.queue.length) {
-        serverLog.info(`[ListenTogether] 队列重排序失败，索引越界: from=${from}, to=${to}, length=${room.queue.length}`);
+        serverLog.info(
+          `[ListenTogether] 队列重排序失败，索引越界: from=${from}, to=${to}, length=${room.queue.length}`,
+        );
         return null;
       }
       const [item] = room.queue.splice(from, 1);
@@ -792,7 +843,9 @@ export const applyQueueAction = (
         return null;
       }
       room.queue = newQueue;
-      serverLog.info(`[ListenTogether] 队列设置成功: roomId=${roomId}, length=${room.queue.length}`);
+      serverLog.info(
+        `[ListenTogether] 队列设置成功: roomId=${roomId}, length=${room.queue.length}`,
+      );
       return room.queue;
     }
     default:
@@ -830,7 +883,9 @@ export const updateMemberAudioSource = (
     memberAudioSources.set(roomId, roomSources);
   }
   roomSources.set(memberId, source);
-  serverLog.info(`[ListenTogether] 成员音源已更新: roomId=${roomId}, memberId=${memberId}, quality=${source.quality}, type=${source.sourceType}`);
+  serverLog.info(
+    `[ListenTogether] 成员音源已更新: roomId=${roomId}, memberId=${memberId}, quality=${source.quality}, type=${source.sourceType}`,
+  );
 };
 
 /** 选举最优音源 */
@@ -850,7 +905,9 @@ export const electBestAudioSource = (roomId: string): ListenTogetherAudioSource 
     const tRank = typeRank[source.sourceType] || 0;
     const score = qRank * 10 + tRank;
 
-    serverLog.info(`[ListenTogether] 音源评分: memberId=${source.memberId}, quality=${source.quality}(${qRank}), type=${source.sourceType}(${tRank}), score=${score}`);
+    serverLog.info(
+      `[ListenTogether] 音源评分: memberId=${source.memberId}, quality=${source.quality}(${qRank}), type=${source.sourceType}(${tRank}), score=${score}`,
+    );
 
     if (score > bestScore) {
       bestScore = score;
@@ -859,7 +916,9 @@ export const electBestAudioSource = (roomId: string): ListenTogetherAudioSource 
   }
 
   if (best) {
-    serverLog.info(`[ListenTogether] 最优音源选举完成: roomId=${roomId}, memberId=${best.memberId}, quality=${best.quality}, type=${best.sourceType}`);
+    serverLog.info(
+      `[ListenTogether] 最优音源选举完成: roomId=${roomId}, memberId=${best.memberId}, quality=${best.quality}, type=${best.sourceType}`,
+    );
   }
   return best;
 };
@@ -876,7 +935,9 @@ export const recallChatMessage = (
   messageId: string,
   memberId: string,
 ): { success: boolean; reason?: string } => {
-  serverLog.info(`[ListenTogether] 尝试撤回消息: roomId=${roomId}, messageId=${messageId}, memberId=${memberId}`);
+  serverLog.info(
+    `[ListenTogether] 尝试撤回消息: roomId=${roomId}, messageId=${messageId}, memberId=${memberId}`,
+  );
   const room = rooms.get(roomId);
   if (!room) {
     serverLog.info(`[ListenTogether] 撤回消息失败，房间不存在: ${roomId}`);

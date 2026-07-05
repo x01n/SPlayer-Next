@@ -66,7 +66,12 @@ const handleCreateRoom = async (): Promise<void> => {
 };
 
 /** 解析链接（支持base62和query参数格式） */
-const parseJoinLink = async (): Promise<{ serverUrl: string; port: number; roomId: string; roomKey: string } | null> => {
+const parseJoinLink = async (): Promise<{
+  serverUrl: string;
+  port: number;
+  roomId: string;
+  roomKey: string;
+} | null> => {
   const link = joinLink.value.trim();
   if (!link) return null;
   try {
@@ -215,7 +220,16 @@ const connectionStatusText = computed(() => {
 
 /** 获取发送者头像颜色 */
 const getAvatarColor = (senderId: string): string => {
-  const colors = ["#f55e55", "#5b8ff9", "#5ad8a6", "#f6bd16", "#e8684a", "#6dc8ec", "#9270ca", "#ff9d4d"];
+  const colors = [
+    "#f55e55",
+    "#5b8ff9",
+    "#5ad8a6",
+    "#f6bd16",
+    "#e8684a",
+    "#6dc8ec",
+    "#9270ca",
+    "#ff9d4d",
+  ];
   let hash = 0;
   for (let i = 0; i < senderId.length; i++) {
     hash = senderId.charCodeAt(i) + ((hash << 5) - hash);
@@ -224,7 +238,11 @@ const getAvatarColor = (senderId: string): string => {
 };
 
 /** 处理聊天发送 */
-const handleChatSend = (content: string, replyTo?: ListenTogetherChatMessage["replyTo"], mentions?: string[]): void => {
+const handleChatSend = (
+  content: string,
+  replyTo?: ListenTogetherChatMessage["replyTo"],
+  mentions?: string[],
+): void => {
   store.sendChat(content, replyTo, mentions);
 };
 
@@ -282,7 +300,6 @@ const handleAddSearchSong = async (track: Track): Promise<void> => {
 const handleRemoveSong = async (index: number): Promise<void> => {
   await store.sendQueueAction("remove", { index });
 };
-
 </script>
 
 <template>
@@ -293,7 +310,11 @@ const handleRemoveSong = async (index: number): Promise<void> => {
       <div v-if="store.isConnected" class="flex items-center gap-2">
         <span
           class="px-2.5 py-1 rounded-full text-xs font-medium"
-          :class="store.connectionState === 'connected' ? 'bg-green-500/15 text-green-400 border border-green-500/20' : 'bg-red-500/15 text-red-400 border border-red-500/20'"
+          :class="
+            store.connectionState === 'connected'
+              ? 'bg-green-500/15 text-green-400 border border-green-500/20'
+              : 'bg-red-500/15 text-red-400 border border-red-500/20'
+          "
         >
           {{ connectionStatusText }}
         </span>
@@ -369,7 +390,11 @@ const handleRemoveSong = async (index: number): Promise<void> => {
               class="text-xs text-primary cursor-pointer hover:underline"
               @click="showManualJoin = !showManualJoin"
             >
-              {{ showManualJoin ? t("listenTogether.panel.useLink") : t("listenTogether.panel.manualInput") }}
+              {{
+                showManualJoin
+                  ? t("listenTogether.panel.useLink")
+                  : t("listenTogether.panel.manualInput")
+              }}
             </span>
           </div>
           <SButton type="primary" :loading="joining" class="w-full" @click="handleJoinRoom">
@@ -394,7 +419,11 @@ const handleRemoveSong = async (index: number): Promise<void> => {
             </div>
             <span
               class="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium"
-              :class="store.connectionState === 'connected' ? 'bg-green-500/15 text-green-400 border border-green-500/20' : 'bg-red-500/15 text-red-400 border border-red-500/20'"
+              :class="
+                store.connectionState === 'connected'
+                  ? 'bg-green-500/15 text-green-400 border border-green-500/20'
+                  : 'bg-red-500/15 text-red-400 border border-red-500/20'
+              "
             >
               {{ connectionStatusText }}
             </span>
@@ -404,10 +433,15 @@ const handleRemoveSong = async (index: number): Promise<void> => {
             v-if="store.room?.currentTrack"
             class="mb-4 p-3 bg-surface-bright/60 rounded-xl border border-outline-variant/10"
           >
-            <p class="text-xs text-on-surface-variant/60 mb-1">{{ t("listenTogether.panel.nowPlaying") }}</p>
+            <p class="text-xs text-on-surface-variant/60 mb-1">
+              {{ t("listenTogether.panel.nowPlaying") }}
+            </p>
             <p class="text-sm font-medium truncate">{{ store.room.currentTrack.title }}</p>
             <p class="text-xs text-on-surface-variant/60 truncate">
-              {{ store.room.currentTrack.artists?.[0]?.name ?? t("listenTogether.panel.unknownArtist") }}
+              {{
+                store.room.currentTrack.artists?.[0]?.name ??
+                t("listenTogether.panel.unknownArtist")
+              }}
             </p>
           </div>
 
@@ -415,12 +449,7 @@ const handleRemoveSong = async (index: number): Promise<void> => {
             <SButton v-if="store.isHost" type="primary" size="small" @click="handleCopyLink">
               {{ t("listenTogether.panel.copyLink") }}
             </SButton>
-            <SButton
-              v-if="store.isHost"
-              type="error"
-              size="small"
-              @click="handleCloseRoom"
-            >
+            <SButton v-if="store.isHost" type="error" size="small" @click="handleCloseRoom">
               {{ t("listenTogether.panel.closeRoom") }}
             </SButton>
             <SButton v-else size="small" @click="handleLeaveRoom">
@@ -430,15 +459,22 @@ const handleRemoveSong = async (index: number): Promise<void> => {
         </div>
 
         <!-- 播放队列 -->
-        <div class="bg-surface-panel rounded-2xl p-4 shrink-0 border border-outline-variant/10 shadow-sm max-h-60 flex flex-col">
+        <div
+          class="bg-surface-panel rounded-2xl p-4 shrink-0 border border-outline-variant/10 shadow-sm max-h-60 flex flex-col"
+        >
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-medium text-on-surface-variant/80">{{ t("listenTogether.page.queue") }}</h3>
+            <h3 class="text-sm font-medium text-on-surface-variant/80">
+              {{ t("listenTogether.page.queue") }}
+            </h3>
             <SButton variant="tertiary" size="small" @click="showAddSong = true">
               {{ t("listenTogether.page.addSong") }}
             </SButton>
           </div>
           <div class="flex-1 overflow-y-auto min-h-0">
-            <div v-if="store.queue.length === 0" class="text-xs text-on-surface-variant/40 text-center py-4">
+            <div
+              v-if="store.queue.length === 0"
+              class="text-xs text-on-surface-variant/40 text-center py-4"
+            >
               {{ t("listenTogether.page.emptyQueue") }}
             </div>
             <div v-else class="flex flex-col gap-1">
@@ -447,11 +483,16 @@ const handleRemoveSong = async (index: number): Promise<void> => {
                 :key="item.track.id + index"
                 class="flex items-center gap-2 p-2 rounded-xl hover:bg-surface-bright/60 transition-colors group"
               >
-                <span class="text-xs text-on-surface-variant/40 w-5 text-center shrink-0">{{ index + 1 }}</span>
+                <span class="text-xs text-on-surface-variant/40 w-5 text-center shrink-0">
+                  {{ index + 1 }}
+                </span>
                 <div class="min-w-0 flex-1">
                   <p class="text-sm truncate">{{ item.track.title }}</p>
                   <p class="text-xs text-on-surface-variant/50 truncate">
-                    {{ item.track.artists?.map((a) => a.name).join(", ") ?? t("listenTogether.panel.unknownArtist") }}
+                    {{
+                      item.track.artists?.map((a) => a.name).join(", ") ??
+                      t("listenTogether.panel.unknownArtist")
+                    }}
                   </p>
                 </div>
                 <button
@@ -467,8 +508,12 @@ const handleRemoveSong = async (index: number): Promise<void> => {
         </div>
 
         <!-- 成员列表 -->
-        <div class="bg-surface-panel rounded-2xl p-4 flex-1 min-h-0 overflow-y-auto border border-outline-variant/10 shadow-sm">
-          <h3 class="text-sm font-medium mb-3 text-on-surface-variant/80">{{ t("listenTogether.page.members") }}</h3>
+        <div
+          class="bg-surface-panel rounded-2xl p-4 flex-1 min-h-0 overflow-y-auto border border-outline-variant/10 shadow-sm"
+        >
+          <h3 class="text-sm font-medium mb-3 text-on-surface-variant/80">
+            {{ t("listenTogether.page.members") }}
+          </h3>
           <div class="flex flex-col gap-1">
             <div
               v-for="member in store.room?.members"
@@ -478,8 +523,20 @@ const handleRemoveSong = async (index: number): Promise<void> => {
               <div class="flex items-center gap-2.5 min-w-0">
                 <div
                   class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0"
-                  :class="member.id === store.room?.hostId ? 'bg-primary text-white' : 'bg-surface-bright text-on-surface border border-outline-variant/20'"
-                  :style="member.id !== store.room?.hostId ? { backgroundColor: getAvatarColor(member.id) + '20', color: getAvatarColor(member.id), borderColor: getAvatarColor(member.id) + '40' } : {}"
+                  :class="
+                    member.id === store.room?.hostId
+                      ? 'bg-primary text-white'
+                      : 'bg-surface-bright text-on-surface border border-outline-variant/20'
+                  "
+                  :style="
+                    member.id !== store.room?.hostId
+                      ? {
+                          backgroundColor: getAvatarColor(member.id) + '20',
+                          color: getAvatarColor(member.id),
+                          borderColor: getAvatarColor(member.id) + '40',
+                        }
+                      : {}
+                  "
                 >
                   {{ member.nickname?.[0] ?? "?" }}
                 </div>
@@ -490,7 +547,10 @@ const handleRemoveSong = async (index: number): Promise<void> => {
                   </p>
                 </div>
               </div>
-              <div v-if="store.isHost && member.id !== store.room?.hostId" class="flex gap-1 shrink-0">
+              <div
+                v-if="store.isHost && member.id !== store.room?.hostId"
+                class="flex gap-1 shrink-0"
+              >
                 <SButton variant="tertiary" size="small" @click="handleKick(member.id)">
                   {{ t("listenTogether.page.kick") }}
                 </SButton>
@@ -515,12 +575,7 @@ const handleRemoveSong = async (index: number): Promise<void> => {
       <!-- 点歌弹窗 -->
       <SDialog v-model:open="showAddSong" :title="t('listenTogether.page.addSong')">
         <div class="flex flex-col gap-4 w-96">
-          <SButton
-            v-if="media.track"
-            type="primary"
-            class="w-full"
-            @click="handleAddCurrentSong"
-          >
+          <SButton v-if="media.track" type="primary" class="w-full" @click="handleAddCurrentSong">
             {{ t("listenTogether.page.addCurrentSong") }}: {{ media.track.title }}
           </SButton>
 
@@ -542,10 +597,7 @@ const handleRemoveSong = async (index: number): Promise<void> => {
             </SButton>
           </div>
 
-          <div
-            v-if="searchResults.length > 0"
-            class="flex flex-col gap-1 max-h-60 overflow-y-auto"
-          >
+          <div v-if="searchResults.length > 0" class="flex flex-col gap-1 max-h-60 overflow-y-auto">
             <div
               v-for="track in searchResults"
               :key="track.id"
@@ -555,7 +607,10 @@ const handleRemoveSong = async (index: number): Promise<void> => {
               <div class="min-w-0 flex-1">
                 <p class="text-sm truncate">{{ track.title }}</p>
                 <p class="text-xs text-on-surface-variant/50 truncate">
-                  {{ track.artists?.map((a) => a.name).join(", ") ?? t("listenTogether.panel.unknownArtist") }}
+                  {{
+                    track.artists?.map((a) => a.name).join(", ") ??
+                    t("listenTogether.panel.unknownArtist")
+                  }}
                 </p>
               </div>
               <SButton type="primary" size="small">

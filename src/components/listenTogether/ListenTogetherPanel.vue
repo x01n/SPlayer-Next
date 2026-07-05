@@ -12,7 +12,8 @@ const { t } = useI18n();
 
 /** 是否显示面板 */
 const isVisible = computed(
-  () => store.isConnected || store.connectionState === "connecting" || store.connectionState === "idle",
+  () =>
+    store.isConnected || store.connectionState === "connecting" || store.connectionState === "idle",
 );
 
 /** 连接状态文本 */
@@ -76,7 +77,12 @@ const handleCreateRoom = async (): Promise<void> => {
 };
 
 /** 解析链接 */
-const parseJoinLink = (): { serverUrl: string; port: number; roomId: string; roomKey: string } | null => {
+const parseJoinLink = (): {
+  serverUrl: string;
+  port: number;
+  roomId: string;
+  roomKey: string;
+} | null => {
   const link = joinLink.value.trim();
   if (!link) return null;
   try {
@@ -248,7 +254,11 @@ const handleCopyLink = async (): Promise<void> => {
         </template>
         <div class="lt-toggle-manual">
           <span class="lt-link" @click="showManualJoin = !showManualJoin">
-            {{ showManualJoin ? t("listenTogether.panel.useLink") : t("listenTogether.panel.manualInput") }}
+            {{
+              showManualJoin
+                ? t("listenTogether.panel.useLink")
+                : t("listenTogether.panel.manualInput")
+            }}
           </span>
         </div>
         <SButton
@@ -268,7 +278,9 @@ const handleCopyLink = async (): Promise<void> => {
       <div class="lt-header">
         <span class="lt-title">{{ t("listenTogether.panel.title") }}</span>
         <span class="lt-status" :class="store.connectionState">{{ connectionStatusText }}</span>
-        <button class="lt-close" @click="handleLeaveRoom">{{ t("listenTogether.panel.leave") }}</button>
+        <button class="lt-close" @click="handleLeaveRoom">
+          {{ t("listenTogether.panel.leave") }}
+        </button>
       </div>
 
       <div v-if="store.room" class="lt-body">
@@ -282,7 +294,9 @@ const handleCopyLink = async (): Promise<void> => {
         <div v-if="store.room.currentTrack" class="lt-track">
           <span class="lt-track-name">{{ store.room.currentTrack.title }}</span>
           <span class="lt-track-artist">
-            {{ store.room.currentTrack.artists?.[0]?.name ?? t("listenTogether.panel.unknownArtist") }}
+            {{
+              store.room.currentTrack.artists?.[0]?.name ?? t("listenTogether.panel.unknownArtist")
+            }}
           </span>
         </div>
 

@@ -19,9 +19,7 @@ export const usePluginsStore = defineStore("plugins", () => {
   );
 
   /** manifest.type === "panel" 的插件（面板类） */
-  const panelPlugins = computed(() =>
-    list.value.filter((info) => info.manifest.type === "panel"),
-  );
+  const panelPlugins = computed(() => list.value.filter((info) => info.manifest.type === "panel"));
 
   /** manifest.type === "service" 的插件（服务类） */
   const servicePlugins = computed(() =>

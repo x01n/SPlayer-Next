@@ -91,13 +91,33 @@ const search = async (params: Record<string, unknown>): Promise<Record<string, u
   };
 
   if (!keywords) {
-    return { code: 400, total: 0, [type === "track" ? "tracks" : type === "album" ? "albums" : type === "artist" ? "artists" : "playlists"]: [] };
+    return {
+      code: 400,
+      total: 0,
+      [type === "track"
+        ? "tracks"
+        : type === "album"
+          ? "albums"
+          : type === "artist"
+            ? "artists"
+            : "playlists"]: [],
+    };
   }
 
   const token = await getAccessToken();
   if (!token) {
     // 未配置凭证时返回空结果，不抛错
-    return { code: 401, total: 0, [type === "track" ? "tracks" : type === "album" ? "albums" : type === "artist" ? "artists" : "playlists"]: [] };
+    return {
+      code: 401,
+      total: 0,
+      [type === "track"
+        ? "tracks"
+        : type === "album"
+          ? "albums"
+          : type === "artist"
+            ? "artists"
+            : "playlists"]: [],
+    };
   }
 
   const url =
@@ -113,7 +133,17 @@ const search = async (params: Record<string, unknown>): Promise<Record<string, u
     if (!res.ok) {
       const text = await res.text();
       coreLog.warn(`[spotify] search failed: ${res.status} ${text}`);
-      return { code: res.status, total: 0, [type === "track" ? "tracks" : type === "album" ? "albums" : type === "artist" ? "artists" : "playlists"]: [] };
+      return {
+        code: res.status,
+        total: 0,
+        [type === "track"
+          ? "tracks"
+          : type === "album"
+            ? "albums"
+            : type === "artist"
+              ? "artists"
+              : "playlists"]: [],
+      };
     }
 
     const data = (await res.json()) as SpotifySearchResponse;
