@@ -57,7 +57,7 @@
     "electron-updater": "^6.8.3",
     "font-list": "^2.0.2",
     "hono": "^4.12.25",
-    "ws": "^8.20.1"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@applemusic-like-lyrics/core": "^0.5.1",
