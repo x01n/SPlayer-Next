@@ -155,6 +155,7 @@ export const refreshTray = (): void => {
 
 /** 初始化系统托盘 */
 export const initTray = (): void => {
+  if (tray) return; // 已初始化则不再重复创建，避免托盘图标和 nativeTheme 监听累积
   const isMac = process.platform === "darwin";
   let icon: string | Electron.NativeImage;
   if (isWin) {
@@ -180,8 +181,9 @@ export const initTray = (): void => {
  * @param name - 歌曲显示名称
  */
 export const setTraySongName = (name: string): void => {
-  // 限制显示长度，避免菜单过宽
-  songName = name.length > 20 ? name.slice(0, 20) + "..." : name;
+  // 限制显示长度，避免菜单过宽；防御空值
+  const safe = name ?? "";
+  songName = safe.length > 20 ? safe.slice(0, 20) + "..." : safe;
   refreshTray();
 };
 
@@ -239,6 +241,7 @@ export const setTrayTaskbarLyric = (open: boolean): void => {
 
 /** 销毁托盘 */
 export const destroyTray = (): void => {
+  nativeTheme.removeListener("updated", refreshTray);
   tray?.destroy();
   tray = null;
 };

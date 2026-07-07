@@ -7,6 +7,7 @@ export const usePluginsStore = defineStore("plugins", () => {
   const marketPlugins = shallowRef<MarketPlugin[]>([]);
   const marketLoaded = ref(false);
   let unsubscribe: (() => void) | null = null;
+  const electronApi = window.api;
 
   /** manifest.type === "source" 或缺省的插件（音源类） */
   const sourcePlugins = computed(() =>
@@ -42,10 +43,14 @@ export const usePluginsStore = defineStore("plugins", () => {
 
   /** 拉取列表并建立状态订阅 */
   const load = async (): Promise<void> => {
-    list.value = await window.api.plugins.list();
+    if (!electronApi) {
+      loaded.value = true;
+      return;
+    }
+    list.value = await electronApi.plugins.list();
     loaded.value = true;
     if (!unsubscribe) {
-      unsubscribe = window.api.plugins.onStatus((info) => {
+      unsubscribe = electronApi.plugins.onStatus((info) => {
         const next = list.value.slice();
         const idx = next.findIndex((item) => item.manifest.id === info.manifest.id);
         if (idx >= 0) next[idx] = info;
@@ -106,9 +111,15 @@ export const usePluginsStore = defineStore("plugins", () => {
   const setEnabled = async (id: string, enabled: boolean): Promise<void> => {
     const info = list.value.find((item) => item.manifest.id === id);
     if (!info) return;
-    // 本地先改，开关即时反映
+    const oldEnabled = info.enabled;
     list.value = list.value.map((item) => (item.manifest.id === id ? { ...item, enabled } : item));
-    await window.api.plugins.setEnabled(id, enabled);
+    try {
+      await window.api.plugins.setEnabled(id, enabled);
+    } catch {
+      list.value = list.value.map((item) =>
+        item.manifest.id === id ? { ...item, enabled: oldEnabled } : item,
+      );
+    }
   };
 
   /**
@@ -118,12 +129,23 @@ export const usePluginsStore = defineStore("plugins", () => {
    * @param value - 新值
    */
   const setSetting = async (id: string, key: string, value: unknown): Promise<void> => {
+    const info = list.value.find((item) => item.manifest.id === id);
+    if (!info) return;
+    const oldValue = info.settingsValues?.[key];
     list.value = list.value.map((info) =>
       info.manifest.id === id
         ? { ...info, settingsValues: { ...(info.settingsValues ?? {}), [key]: value } }
         : info,
     );
-    await window.api.plugins.setSetting(id, key, value);
+    try {
+      await window.api.plugins.setSetting(id, key, value);
+    } catch {
+      list.value = list.value.map((info) =>
+        info.manifest.id === id
+          ? { ...info, settingsValues: { ...(info.settingsValues ?? {}), [key]: oldValue } }
+          : info,
+      );
+    }
   };
 
   /**

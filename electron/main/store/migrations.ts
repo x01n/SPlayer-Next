@@ -12,11 +12,21 @@ export interface Migration {
  * 新增字段已由 deepMerge 自动补全，此处仅用于字段重命名、数据转换等
  */
 export const migrations: Migration[] = [
-  // 示例：
-  // {
-  //   version: 1,
-  //   migrate: (data) => {
-  //     // 重命名字段、转换数据格式等
-  //   },
-  // },
+  {
+    version: 1,
+    migrate: (data) => {
+      const legacySystem = data.system as typeof data.system & {
+        spotify?: Partial<Pick<SystemConfig["spotify"], "clientId" | "clientSecret">>;
+      };
+      const legacySpotify = legacySystem.spotify;
+      if (!legacySpotify) return;
+      if (legacySpotify.clientId && !data.spotify.clientId) {
+        data.spotify.clientId = legacySpotify.clientId;
+      }
+      if (legacySpotify.clientSecret && !data.spotify.clientSecret) {
+        data.spotify.clientSecret = legacySpotify.clientSecret;
+      }
+      delete legacySystem.spotify;
+    },
+  },
 ];

@@ -5,7 +5,7 @@ import type { Track } from "@shared/types/player";
 import { clampLastLineEnd } from "@shared/utils/lyricSync";
 
 /** 同步偏差阈值 */
-const SYNC_DRIFT_THRESHOLD = 200;
+const SYNC_DRIFT_THRESHOLD = 40;
 /** 最大允许无同步插值时长（ms），超过则停止插值防止卡顿期间歌词超前 */
 const MAX_INTERPOLATION_MS = 800;
 
@@ -81,17 +81,22 @@ export const useNowPlayingSync = (options: NowPlayingSyncOptions): NowPlayingSyn
     const ipcDelay = Math.max(0, Date.now() - sendTimestamp);
     const candidate = positionMs + ipcDelay * speed;
     const projected = anchorPos + (performance.now() - anchorPerf) * speed;
-    if (Math.abs(candidate - projected) > SYNC_DRIFT_THRESHOLD) {
+    const drift = candidate - projected;
+    if (Math.abs(drift) > SYNC_DRIFT_THRESHOLD) {
       resetAnchor(positionMs, sendTimestamp);
     } else {
+      // 渐进校正锚点，消除微小累积误差（5ms 以上才校正，避免高频抖动）
+      if (Math.abs(drift) > 5) {
+        anchorPos += drift * 0.3;
+        anchorPerf = performance.now();
+      }
       lastSyncReceivePerf = performance.now();
     }
   };
 
   const applySnapshot = (snap: NowPlayingSnapshot): void => {
     track.value = snap.track;
-    const mainLines = snap.lyric.filter((line) => !line.isBG);
-    lyric.value = clampLastLineEnd(mainLines, snap.track?.duration);
+    lyric.value = clampLastLineEnd(snap.lyric, snap.track?.duration);
     playing.value = snap.playing;
     speed = snap.speed;
     lyricOffsetMs = snap.lyricOffsetMs;

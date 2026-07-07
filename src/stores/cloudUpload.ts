@@ -21,8 +21,8 @@ export interface UploadItem {
 /** 队列保留项硬上限,溢出淘汰最旧的已结束项(成功/秒传/失败) */
 const MAX_RETAINED = 200;
 
-/** 进度订阅只绑一次 */
-let progressBound = false;
+/** 进度订阅取消函数 */
+let progressUnsub: (() => void) | null = null;
 /** 队列项 id 自增 */
 let idSeq = 0;
 
@@ -39,9 +39,8 @@ export const useCloudUploadStore = defineStore("cloudUpload", () => {
 
   /** 绑定主进程进度推送(按 uploadId 原地更新) */
   const bindProgress = (): void => {
-    if (progressBound) return;
-    progressBound = true;
-    window.api.cloud.onUploadProgress((progress: CloudUploadProgress) => {
+    if (progressUnsub) return;
+    progressUnsub = window.api.cloud.onUploadProgress((progress: CloudUploadProgress) => {
       const item = items.value.find((it) => it.id === progress.uploadId);
       if (!item) return;
       if (progress.stage === "uploading") {
@@ -162,6 +161,11 @@ export const useCloudUploadStore = defineStore("cloudUpload", () => {
       (item) => !["success", "instant", "error"].includes(item.status),
     );
   };
+
+  onScopeDispose(() => {
+    progressUnsub?.();
+    progressUnsub = null;
+  });
 
   return {
     items,

@@ -64,7 +64,8 @@ interface RenderItem {
 const items = computed<RenderItem[]>(() => {
   if (hasLyric.value) {
     const idx = primaryIndex.value;
-    const line = currentLine.value!;
+    const line = currentLine.value;
+    if (!line) return [];
     const list: RenderItem[] = [
       {
         key: `line-${idx}`,
@@ -99,14 +100,28 @@ const items = computed<RenderItem[]>(() => {
   return list;
 });
 
+let coverErrorOnce = false;
+const onCoverError = (event: Event): void => {
+  if (coverErrorOnce) return;
+  coverErrorOnce = true;
+  const img = event.target as HTMLImageElement;
+  img.src = DEFAULT_COVER;
+};
+
 const rootStyle = computed(() => ({
   "--tbl-font-size": `${config.fontSize}px`,
   fontFamily: config.fontFamily || undefined,
 }));
 
-const handlePrev = (): void => window.api.player.dispatch("prev");
-const handleNext = (): void => window.api.player.dispatch("next");
-const handleTogglePlay = (): void => window.api.player.dispatch(playing.value ? "pause" : "play");
+const handlePrev = (): void => {
+  try { window.api.player.dispatch("prev"); } catch { /* noop */ }
+};
+const handleNext = (): void => {
+  try { window.api.player.dispatch("next"); } catch { /* noop */ }
+};
+const handleTogglePlay = (): void => {
+  try { window.api.player.dispatch(playing.value ? "pause" : "play"); } catch { /* noop */ }
+};
 const handleFocusMain = (): void => {
   window.api.system.focusMainWindow().catch(() => {});
 };
@@ -151,11 +166,11 @@ onBeforeUnmount(() => {
     >
       <div v-if="config.showCover" class="cover-wrapper">
         <img
-          class="cover"
+          class="cover no-drag"
           :src="track?.cover || DEFAULT_COVER"
           alt=""
           draggable="false"
-          @error="($event.target as HTMLImageElement).src = DEFAULT_COVER"
+          @error="onCoverError"
         />
       </div>
 

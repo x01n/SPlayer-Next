@@ -10,13 +10,13 @@ import type { LyricLine } from "@shared/types/lyrics";
 export const findLyricIndex = (lines: LyricLine[], time: number, prevIndex = -1): number => {
   if (lines.length === 0) return -1;
 
-  // 快速路径：当前索引仍然有效
-  if (prevIndex >= 0 && prevIndex < lines.length) {
+  // 快速路径：当前索引仍然有效且不是背景行
+  if (prevIndex >= 0 && prevIndex < lines.length && !lines[prevIndex].isBG) {
     const current = lines[prevIndex];
     if (time >= current.startTime && time < current.endTime) return prevIndex;
     // 检查下一行（正常播放最常见的情况）
     const next = lines[prevIndex + 1];
-    if (next && time >= next.startTime && time < next.endTime) return prevIndex + 1;
+    if (next && time >= next.startTime && time < next.endTime && !next.isBG) return prevIndex + 1;
   }
 
   // 二分查找：找最后一个 startTime <= time 的行
@@ -33,16 +33,16 @@ export const findLyricIndex = (lines: LyricLine[], time: number, prevIndex = -1)
     }
   }
 
-  // 在该行时间范围内，或处于该行 endTime 与下一行 startTime 之间的间隙，都停留在该行
-  if (result >= 0) {
-    if (time < lines[result].endTime) return result;
-    const next = lines[result + 1];
-    if (!next || time < next.startTime) return result;
-  }
-
   // 跳过背景歌词行，往前找最近的主歌词行
   while (result >= 0 && lines[result].isBG) result--;
+  if (result < 0) return -1;
 
+  // 在该行时间范围内，或处于该行 endTime 与下一行 startTime 之间的间隙，都停留在该行
+  if (time < lines[result].endTime) return result;
+  const next = lines[result + 1];
+  if (!next || time < next.startTime) return result;
+
+  // 时间已越过 result 的 endTime 且 next 已开始（理论上不应发生，因为 result 是 startTime <= time 的最大索引）
   return result;
 };
 

@@ -14,8 +14,10 @@ useOrpheusProtocol();
 // 接入一起听协议唤起
 useListenTogetherProtocol();
 
+const mediaStore = useMediaStore();
+
 /** 有歌曲信息时显示播放栏 */
-const showPlayerBar = computed(() => !!useMediaStore().track);
+const showPlayerBar = computed(() => !!mediaStore.track);
 const { isExpanded } = storeToRefs(status);
 const { appearance } = settings;
 
@@ -135,4 +137,6 @@ const playerBarInnerClass = computed(() => {
   <UpdateDialog />
   <!-- 评论弹窗 -->
   <MusicCommentsDialog />
+  <!-- 视频背景弹窗 -->
+  <VideoBgDialog />
 </template>

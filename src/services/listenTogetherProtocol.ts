@@ -10,6 +10,9 @@ import { toast } from "@/composables/useToast";
 
 const { t } = i18n.global;
 
+/** 是否正在处理协议链接（防止并发加入多个房间） */
+let isHandlingUrl = false;
+
 /**
  * 解析一起听分享链接
  * 支持格式：
@@ -24,10 +27,28 @@ export const parseListenTogetherUrl = async (
   try {
     const urlObj = new URL(url);
     const serverUrl = urlObj.hostname || "127.0.0.1";
-    const port = parseInt(urlObj.port || "14558", 10);
+
+    // 根据协议推断默认端口
+    let port: number;
+    if (urlObj.port) {
+      port = parseInt(urlObj.port, 10);
+    } else {
+      switch (urlObj.protocol) {
+        case "https:":
+        case "wss:":
+          port = 443;
+          break;
+        case "http:":
+        case "ws:":
+          port = 80;
+          break;
+        default:
+          port = 14558;
+      }
+    }
 
     // 优先解析 /i/ 路径的 base62 邀请码
-    const pathMatch = urlObj.pathname.match(/^\/i\/(.+)$/);
+    const pathMatch = urlObj.pathname.match(/^\/i\/([^/]+)\/?$/);
     if (pathMatch) {
       const inviteCode = pathMatch[1];
       const decoded = await window.api.listenTogether.decodeInviteCode(inviteCode);
@@ -53,37 +74,47 @@ export const parseListenTogetherUrl = async (
  * @param url - 一起听分享链接
  */
 export const handleListenTogetherUrl = async (url: string): Promise<void> => {
-  const parsed = await parseListenTogetherUrl(url);
-  if (!parsed) {
-    toast.error(t("listenTogether.protocol.invalidLink"));
+  if (isHandlingUrl) {
+    console.log("[ListenTogether] 已有协议链接正在处理，忽略本次请求");
     return;
   }
+  isHandlingUrl = true;
 
-  const store = useListenTogetherStore();
-  const userStore = useUserStore();
+  try {
+    const parsed = await parseListenTogetherUrl(url);
+    if (!parsed) {
+      toast.error(t("listenTogether.protocol.invalidLink"));
+      return;
+    }
 
-  if (store.isConnected) {
-    toast.warning(t("listenTogether.protocol.alreadyInRoom"));
-    return;
-  }
+    const store = useListenTogetherStore();
+    const userStore = useUserStore();
 
-  const nickname = userStore.profile?.nickname || "匿名用户";
-  const neteaseUserId = userStore.profile?.userId;
+    if (store.isConnected) {
+      toast.warning(t("listenTogether.protocol.alreadyInRoom"));
+      return;
+    }
 
-  toast.info(t("listenTogether.protocol.joining"));
+    const nickname = userStore.profile?.nickname || "匿名用户";
+    const neteaseUserId = userStore.profile?.userId;
 
-  const success = await store.joinRoom(
-    parsed.serverUrl,
-    parsed.port,
-    parsed.roomId,
-    parsed.roomKey,
-    nickname,
-    neteaseUserId,
-  );
+    toast.info(t("listenTogether.protocol.joining"));
 
-  if (success) {
-    toast.success(t("listenTogether.protocol.joinSuccess"));
-  } else {
-    toast.error(t("listenTogether.protocol.joinFailed"));
+    const success = await store.joinRoom(
+      parsed.serverUrl,
+      parsed.port,
+      parsed.roomId,
+      parsed.roomKey,
+      nickname,
+      neteaseUserId,
+    );
+
+    if (success) {
+      toast.success(t("listenTogether.protocol.joinSuccess"));
+    } else {
+      toast.error(t("listenTogether.protocol.joinFailed"));
+    }
+  } finally {
+    isHandlingUrl = false;
   }
 };

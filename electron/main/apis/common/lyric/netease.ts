@@ -12,7 +12,7 @@ import { callNetease } from "@main/apis/netease";
 import { getCachedLyric, setCachedLyric } from "@main/database/lyricCache";
 import { buildFingerprint, getMatchedId, setMatchedId } from "@main/database/lyricMatchCache";
 import { coreLog } from "@main/utils/logger";
-import type { LyricMatchResult } from "@shared/types/lyrics";
+import type { LyricMatchResult, LyricSearchCandidate } from "@shared/types/lyrics";
 import type { Track } from "@shared/types/player";
 import { prefetchTTML } from "./ttml";
 import { pickBestCandidate, type LyricCandidate } from "./utils";
@@ -81,6 +81,37 @@ export const getByPlatformId = async (id: string): Promise<LyricMatchResult | nu
   } catch (err) {
     coreLog.warn(`[lyric:netease] getByPlatformId(${id}) failed:`, err);
     return null;
+  }
+};
+
+/**
+ * 按 Track 元数据搜索候选歌曲列表
+ * @param track - 歌曲信息
+ * @returns 候选列表
+ */
+export const searchCandidates = async (track: Track): Promise<LyricSearchCandidate[]> => {
+  const keyword = `${track.title} ${track.artists[0]?.name ?? ""}`.trim();
+  if (!keyword) return [];
+  try {
+    const { status, body } = await callNetease("search", {
+      keywords: keyword,
+      type: 1,
+      limit: 10,
+    });
+    if (status !== 200) return [];
+    const songs = body.result?.songs ?? [];
+    return songs.map((song: any) => ({
+      platform: "netease" as const,
+      id: String(song.id),
+      title: song.name,
+      artists: (song.artists ?? []).map((a: { name: string }) => a.name),
+      album: song.album?.name,
+      duration: song.duration,
+      cover: song.album?.picUrl,
+    }));
+  } catch (err) {
+    coreLog.warn(`[lyric:netease] searchCandidates("${keyword}") failed:`, err);
+    return [];
   }
 };
 

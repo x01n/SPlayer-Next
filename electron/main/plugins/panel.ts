@@ -10,8 +10,8 @@ import { BrowserWindow } from "electron";
 import path from "node:path";
 import { coreLog } from "@main/utils/logger";
 
-/** preload 脚本路径，与主窗口共用同一 preload */
-const PRELOAD_PATH = path.join(__dirname, "../preload/index.mjs");
+/** 插件面板窗口专用 preload 路径，权限最小化 */
+const PRELOAD_PATH = path.join(__dirname, "../preload/panel.mjs");
 
 interface PanelWindow {
   pluginId: string;
@@ -21,7 +21,6 @@ interface PanelWindow {
 
 class PluginPanelManager {
   private panels = new Map<string, PanelWindow>();
-  private messageCallbacks = new Map<string, ((message: unknown) => void)[]>();
 
   private getKey(pluginId: string, panelId: string): string {
     return `${pluginId}::${panelId}`;
@@ -68,15 +67,15 @@ class PluginPanelManager {
     });
 
     const content = this.buildPanelHtml(html, css, js, pluginId, panelId);
-    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
 
     win.once("ready-to-show", () => {
       win.show();
     });
 
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
+
     win.on("closed", () => {
       this.panels.delete(key);
-      this.messageCallbacks.delete(key);
     });
 
     this.panels.set(key, { pluginId, panelId, window: win });
@@ -104,7 +103,6 @@ class PluginPanelManager {
       panel.window.close();
     }
     this.panels.delete(key);
-    this.messageCallbacks.delete(key);
   }
 
   /**
@@ -119,27 +117,21 @@ class PluginPanelManager {
   }
 
   /**
-   * 注册面板消息回调（主进程 → 插件沙箱）
-   */
-  onPanelMessage(pluginId: string, panelId: string, callback: (message: unknown) => void): void {
-    const key = this.getKey(pluginId, panelId);
-    const list = this.messageCallbacks.get(key) ?? [];
-    list.push(callback);
-    this.messageCallbacks.set(key, list);
-  }
-
-  /**
    * 关闭某插件的所有面板
    */
   closeAllForPlugin(pluginId: string): void {
+    const keysToClose: string[] = [];
     for (const [key, panel] of this.panels.entries()) {
       if (panel.pluginId === pluginId) {
-        if (!panel.window.isDestroyed()) {
-          panel.window.close();
-        }
-        this.panels.delete(key);
-        this.messageCallbacks.delete(key);
+        keysToClose.push(key);
       }
+    }
+    for (const key of keysToClose) {
+      const panel = this.panels.get(key);
+      if (panel && !panel.window.isDestroyed()) {
+        panel.window.close();
+      }
+      this.panels.delete(key);
     }
   }
 

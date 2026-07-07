@@ -1,6 +1,6 @@
 import type { AfterPackContext } from "electron-builder";
-import { readdir, unlink } from "fs/promises";
-import { join } from "path";
+import { readdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
 
 /** 保留的 locale */
 const keepLocales = new Set(["en-US.pak", "zh-CN.pak"]);
@@ -9,7 +9,7 @@ const keepLocales = new Set(["en-US.pak", "zh-CN.pak"]);
 const afterPack = async (context: AfterPackContext): Promise<void> => {
   const localeDir = join(
     context.appOutDir,
-    context.packager.platform.name === "mac"
+    context.electronPlatformName === "darwin"
       ? `${context.packager.appInfo.productFilename}.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources`
       : "locales",
   );
@@ -20,7 +20,9 @@ const afterPack = async (context: AfterPackContext): Promise<void> => {
         .filter((f) => f.endsWith(".pak") && !keepLocales.has(f))
         .map((f) => unlink(join(localeDir, f))),
     );
-  } catch {}
+  } catch (err) {
+    console.warn("[after-pack] failed to clean locales:", err);
+  }
 };
 
 export default afterPack;

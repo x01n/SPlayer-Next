@@ -38,14 +38,14 @@ export const getStreamUrl = async (
     throw new StreamingAuthError("缺少 accessToken / userId");
   }
   const params = new URLSearchParams({
-    UserId: cfg.userId,
     DeviceId: deviceId(cfg),
-    PlaySessionId: playSessionId ?? crypto.randomUUID(),
+    PlaySessionId: playSessionId || crypto.randomUUID(),
     api_key: cfg.accessToken,
     StartTimeTicks: "0",
     EnableRedirection: "true",
     EnableRemoteMedia: "true",
     Static: "true",
   });
+  if (cfg.userId) params.set("UserId", cfg.userId);
   return `${normalizeBase(cfg.url)}/Audio/${originalId}/universal?${params.toString()}`;
 };

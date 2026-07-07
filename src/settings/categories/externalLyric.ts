@@ -73,14 +73,14 @@ const desktopLyricSection: SettingSection = {
       key: "desktopLyricPlayedColor",
       type: "color",
       binding: { store: "settings", path: "system.desktopLyric.playedColor" },
-      defaultValue: "#ffffff",
+      defaultValue: "rgb(254, 121, 113)",
       showAlpha: false,
     },
     {
       key: "desktopLyricUnplayedColor",
       type: "color",
       binding: { store: "settings", path: "system.desktopLyric.unplayedColor" },
-      defaultValue: "#7d7d7d",
+      defaultValue: "rgb(255, 255, 255)",
       showAlpha: false,
     },
     {

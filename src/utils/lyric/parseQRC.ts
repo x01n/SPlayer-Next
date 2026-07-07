@@ -72,7 +72,7 @@ const parseWords = (rest: string): LyricWord[] => {
 /** 从 XML 包裹中提取纯文本歌词内容（非 XML 原样返回） */
 const extractFromXml = (text: string): string => {
   if (!text.trimStart().startsWith("<")) return text;
-  const greedyMatch = text.match(/LyricContent="([\s\S]*)"\s*\/?>/);
+  const greedyMatch = text.match(/LyricContent="([\s\S]*?)"/);
   if (greedyMatch) return greedyMatch[1];
   const cdataMatch = text.match(/<!\[CDATA\[([\s\S]*?)\]\]>/);
   if (cdataMatch) return cdataMatch[1];

@@ -10,14 +10,15 @@ export const useListenTogetherProtocol = (): void => {
   let unsubscribe: (() => void) | null = null;
 
   onMounted(async () => {
-    // 先注册监听再拉 pending，避免两步之间漏掉实时事件
-    unsubscribe = window.api.system.onListenTogetherUrl(async (url: string) => {
+    const systemApi = window.api?.system;
+    if (!systemApi) return;
+    unsubscribe = systemApi.onListenTogetherUrl(async (url: string) => {
       if (url.startsWith("splayer-listentogether://")) {
         await handleListenTogetherUrl(url);
       }
     });
 
-    const pending = await window.api.system.consumePendingListenTogetherUrl();
+    const pending = await systemApi.consumePendingListenTogetherUrl();
     if (pending && pending.startsWith("splayer-listentogether://")) {
       await handleListenTogetherUrl(pending);
     }

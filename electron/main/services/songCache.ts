@@ -185,7 +185,7 @@ const evictIfNeeded = async (): Promise<void> => {
         await fsp.unlink(absPath(victim.filename));
       } catch {}
       deleteByKey(victim.cacheKey);
-      current -= victim.size;
+      current = Math.max(0, current - victim.size);
       freed += victim.size;
       evicted += 1;
     }
@@ -214,7 +214,13 @@ const runDownload = async (
 
   try {
     await fsp.mkdir(cacheDir, { recursive: true });
-    const response = await fetch(streamUrl, { signal: controller.signal });
+    const fetchTimeout = setTimeout(() => controller.abort(), 30_000);
+    let response: Response;
+    try {
+      response = await fetch(streamUrl, { signal: controller.signal });
+    } finally {
+      clearTimeout(fetchTimeout);
+    }
     if (!response.ok || !response.body) {
       songCacheLog.warn(`[fetch] fail key=${cacheKey} status=${response.status}`);
       return null;
@@ -233,7 +239,7 @@ const runDownload = async (
       return null;
     }
 
-    const nodeStream = Readable.fromWeb(response.body as never);
+    const nodeStream = Readable.fromWeb(response.body as any);
     const writeStream = fs.createWriteStream(partPath);
     await pipeline(nodeStream, writeStream);
 
@@ -281,14 +287,19 @@ const runDownload = async (
   }
 };
 
+let beforeQuitRegistered = false;
+
 /** 启动初始化：建目录 + 孤儿清理 */
 export const init = async (): Promise<void> => {
   cacheDir = getSongCacheDir();
   await fsp.mkdir(cacheDir, { recursive: true });
   await cleanupOrphans();
-  app.on("before-quit", () => {
-    for (const entry of inFlight.values()) entry.controller.abort();
-  });
+  if (!beforeQuitRegistered) {
+    beforeQuitRegistered = true;
+    app.once("before-quit", () => {
+      for (const entry of inFlight.values()) entry.controller.abort();
+    });
+  }
 };
 
 /** 切换缓存目录后调用，让服务感知新前缀 */

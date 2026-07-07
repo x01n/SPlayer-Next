@@ -64,6 +64,7 @@ impl BiquadFilter {
             self.b2 = 0.0;
             self.a1 = 0.0;
             self.a2 = 0.0;
+            self.reset_state();
             return;
         }
         // RBJ Audio EQ Cookbook：peaking EQ

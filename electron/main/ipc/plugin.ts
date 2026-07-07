@@ -18,7 +18,12 @@ import { panelManager } from "@main/plugins/panel";
 import { broadcast } from "@main/utils/broadcast";
 import { coreLog } from "@main/utils/logger";
 
+let registered = false;
+
 export const registerPluginIpc = (): void => {
+  if (registered) return;
+  registered = true;
+
   ipcMain.handle("plugin:list", (): PluginInfo[] => pluginRegistry.listInfo());
 
   ipcMain.handle("plugin:install", async (_evt, filePath: string) => {
@@ -42,7 +47,7 @@ export const registerPluginIpc = (): void => {
       filters: [{ name: "Plugin Script", extensions: ["js"] }],
       properties: ["openFile"],
     });
-    if (res.canceled || !res.filePaths[0]) return { ok: false, cancelled: true };
+    if (res.canceled || !res.filePaths[0]) return { ok: false, canceled: true };
     try {
       const info = await pluginRegistry.install(res.filePaths[0]);
       return { ok: true, id: info.manifest.id };

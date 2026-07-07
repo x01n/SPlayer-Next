@@ -31,7 +31,7 @@ const safeCall = (fn: () => void): void => {
 /** 应用 Discord RPC 配置 */
 const applyDiscordConfig = (discord?: DiscordSettings): void => {
   if (!mc) return;
-  discord ??= store.get("media").discord;
+  discord ??= store.get("media")?.discord;
   if (discord.enabled) {
     mc.enableDiscord();
   } else {
@@ -55,10 +55,14 @@ export const init = (): void => {
     mc.initLogger(nativeLogsDir, isDev);
     mc.initialize();
     mc.onEvent((event) => {
-      eventHandler?.(event);
+      try {
+        eventHandler?.(event);
+      } catch (error) {
+        mediaLog.error("media-ctrl 事件处理失败:", error);
+      }
     });
     const mediaConfig = store.get("media");
-    if (mediaConfig.systemMediaControls) {
+    if (mediaConfig?.systemMediaControls) {
       mc.enable();
     }
     applyDiscordConfig(mediaConfig.discord);

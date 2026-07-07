@@ -55,6 +55,8 @@ export const useSettingsStore = defineStore(
       playerBgRenderScale: 0.5,
       playerBgFreezeOnPause: false,
       playerBgBeat: false,
+      playerBgCustomImage: null,
+      playerBgCustomVideo: null,
       coverLayout: "default",
       autoCenterCover: true,
       followCoverColor: true,
@@ -115,6 +117,11 @@ export const useSettingsStore = defineStore(
     /** 系统配置 - 传递主进程 */
     const system = reactive<SystemConfig>(structuredClone(defaultSystemConfig));
 
+    /** 是否已从主进程同步过配置 */
+    const hasSynced = ref(false);
+
+    const electronApi = window.api;
+
     /** 桌面歌词窗口是否打开；由主进程广播 */
     const isDesktopLyricOpen = ref(false);
 
@@ -149,37 +156,49 @@ export const useSettingsStore = defineStore(
 
     /** 从主进程拉取后端配置 */
     const syncSystem = async (): Promise<void> => {
+      if (hasSynced.value) return;
+      if (!electronApi) {
+        hasSynced.value = true;
+        return;
+      }
       try {
         deepAssign(
           system as unknown as Record<string, unknown>,
-          (await window.api.config.getAll()) as unknown as Record<string, unknown>,
+          (await electronApi.config.getAll()) as unknown as Record<string, unknown>,
         );
-      } catch {}
+        hasSynced.value = true;
+      } catch (err) {
+        console.error("[settings] syncSystem failed:", err);
+      }
     };
 
-    /** IPC 订阅取消回调集合 */
-    const unsubscribers: Array<() => void> = [
-      // 订阅桌面歌词配置变化：歌词窗口点锁定按钮等场景需要回流到主窗口设置页
-      window.api.desktopLyric.onConfigChange((next) => {
-        Object.assign(system.desktopLyric, next as object);
-      }),
-      // 订阅桌面歌词窗口开关状态
-      window.api.window.onDesktopLyricVisibilityChange((open) => {
-        isDesktopLyricOpen.value = open;
-      }),
-      // 订阅灵动岛配置变化
-      window.api.dynamicIsland.onConfigChange((next) => {
-        Object.assign(system.dynamicIsland, next as object);
-      }),
-      // 订阅灵动岛窗口开关状态
-      window.api.window.onDynamicIslandVisibilityChange((open) => {
-        isDynamicIslandOpen.value = open;
-      }),
-      // 订阅任务栏歌词窗口开关状态
-      window.api.window.onTaskbarLyricVisibilityChange((open) => {
-        isTaskbarLyricOpen.value = open;
-      }),
-    ];
+    const unsubscribers: Array<() => void> = [];
+
+    if (electronApi) {
+      unsubscribers.push(
+        electronApi.desktopLyric.onConfigChange((next) => {
+          deepAssign(
+            system.desktopLyric as unknown as Record<string, unknown>,
+            next as unknown as Record<string, unknown>,
+          );
+        }),
+        electronApi.window.onDesktopLyricVisibilityChange((open) => {
+          isDesktopLyricOpen.value = open;
+        }),
+        electronApi.dynamicIsland.onConfigChange((next) => {
+          deepAssign(
+            system.dynamicIsland as unknown as Record<string, unknown>,
+            next as unknown as Record<string, unknown>,
+          );
+        }),
+        electronApi.window.onDynamicIslandVisibilityChange((open) => {
+          isDynamicIslandOpen.value = open;
+        }),
+        electronApi.window.onTaskbarLyricVisibilityChange((open) => {
+          isTaskbarLyricOpen.value = open;
+        }),
+      );
+    }
 
     onScopeDispose(() => {
       for (const off of unsubscribers) off();
@@ -187,24 +206,26 @@ export const useSettingsStore = defineStore(
     });
 
     // 拉取窗口初始开关状态
-    window.api.window
-      .isDesktopLyricOpen()
-      .then((open) => {
-        isDesktopLyricOpen.value = open;
-      })
-      .catch(() => {});
-    window.api.window
-      .isDynamicIslandOpen()
-      .then((open) => {
-        isDynamicIslandOpen.value = open;
-      })
-      .catch(() => {});
-    window.api.window
-      .isTaskbarLyricOpen()
-      .then((open) => {
-        isTaskbarLyricOpen.value = open;
-      })
-      .catch(() => {});
+    if (electronApi) {
+      electronApi.window
+        .isDesktopLyricOpen()
+        .then((open) => {
+          isDesktopLyricOpen.value = open;
+        })
+        .catch(() => {});
+      electronApi.window
+        .isDynamicIslandOpen()
+        .then((open) => {
+          isDynamicIslandOpen.value = open;
+        })
+        .catch(() => {});
+      electronApi.window
+        .isTaskbarLyricOpen()
+        .then((open) => {
+          isTaskbarLyricOpen.value = open;
+        })
+        .catch(() => {});
+    }
 
     /**
      * 写入后端配置并同步本地
@@ -212,11 +233,12 @@ export const useSettingsStore = defineStore(
      */
     const setSystem = async (keyPath: string, value: unknown): Promise<void> => {
       setByPath(system, keyPath, value);
-      window.api.config.set(keyPath, value).catch((err) => {
+      if (!electronApi) return;
+      electronApi.config.set(keyPath, value).catch((err) => {
         console.error("[settings] config.set failed", keyPath, err);
       });
       if (keyPath === "player.fadeEnabled" || keyPath === "player.fadeDuration") {
-        await window.api.player.setFadeDuration(
+        await electronApi.player.setFadeDuration(
           system.player.fadeEnabled ? system.player.fadeDuration : 0,
         );
       }
@@ -241,6 +263,7 @@ export const useSettingsStore = defineStore(
       isDesktopLyricOpen,
       isDynamicIslandOpen,
       isTaskbarLyricOpen,
+      hasSynced,
       syncSystem,
       setSystem,
       afterLocalChange,

@@ -38,7 +38,7 @@ export const useTimeFormat = () => {
         return formatTime(statusStore.duration);
       }
       if (display === "remaining") {
-        return "-" + formatTime(statusStore.duration - statusStore.position);
+        return "-" + formatTime(Math.max(0, statusStore.duration - statusStore.position));
       }
       return "";
     });

@@ -147,8 +147,8 @@ const drawCovered = (
  */
 export const createLyricPoster = async (options: LyricPosterOptions): Promise<Blob> => {
   const { track, lines, fallbackColor } = options;
-  const title = track.title;
-  const artist = track.artists.map((item) => item.name).join(" / ");
+  const title = track.title ?? "";
+  const artist = track.artists?.map((item) => item.name).join(" / ") ?? "";
   const coverDataUrl = await resolveCoverDataUrl(track);
   const coverImg = coverDataUrl ? await loadImage(coverDataUrl) : null;
 

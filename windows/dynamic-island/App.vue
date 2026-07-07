@@ -83,6 +83,13 @@ const notchFusionEnabled = computed(() => isMac && config.notchFusion && mode.va
 
 /* 文本测量：优先使用 config.fontFamily，确保与渲染一致 */
 const measureCtx = document.createElement("canvas").getContext("2d")!;
+let coverErrorOnce = false;
+const onCoverError = (event: Event): void => {
+  if (coverErrorOnce) return;
+  coverErrorOnce = true;
+  const img = event.target as HTMLImageElement;
+  img.src = DEFAULT_COVER;
+};
 const measureTextWidth = (text: string, sizePx: number = fontSize.value): number => {
   const family = config.fontFamily || getComputedStyle(document.documentElement).fontFamily;
   measureCtx.font = `${config.fontWeight} ${sizePx}px ${family}`;
@@ -299,6 +306,7 @@ const startSwapAnimation = (): void => {
 
 /* 歌词过渡结束 */
 const onLyricTransitionEnd = (event: TransitionEvent): void => {
+  if (event.target !== event.currentTarget) return;
   if (event.propertyName !== "width") return;
   if (phase === "shrinking") {
     displayLine.value = currentLine.value;
@@ -502,6 +510,14 @@ const stopProgressLoop = (): void => {
   }
 };
 
+const onVisibilityChange = (): void => {
+  if (document.hidden) {
+    stopProgressLoop();
+  } else {
+    startProgressLoop();
+  }
+};
+
 watch(
   maxLyricSlotWidth,
   () => {
@@ -559,11 +575,13 @@ onMounted(async () => {
   unsubCursor = window.api.dynamicIsland.onCursorInside((inside) => {
     hovering.value = inside;
   });
+  document.addEventListener("visibilitychange", onVisibilityChange);
   startProgressLoop();
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", syncViewportSize);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   stopProgressLoop();
   if (pendingWindowShrinkTimer !== null) {
     window.clearTimeout(pendingWindowShrinkTimer);
@@ -575,6 +593,8 @@ onBeforeUnmount(() => {
   unsubMode = null;
   unsubCursor?.();
   unsubCursor = null;
+  measureCtx.canvas.width = 0;
+  measureCtx.canvas.height = 0;
 });
 </script>
 
@@ -607,13 +627,14 @@ onBeforeUnmount(() => {
         <img
           :src="track?.cover || DEFAULT_COVER"
           alt="cover"
+          class="no-drag"
           draggable="false"
           decoding="async"
-          @error="($event.target as HTMLImageElement).src = DEFAULT_COVER"
+          @error="onCoverError"
         />
       </div>
       <div
-        class="lyric"
+        class="lyric no-drag"
         :class="{ 'is-shrinking': shrinking }"
         :style="{ width: `${lyricWidth}px`, opacity: lyricOpacity }"
         @transitionend="onLyricTransitionEnd"

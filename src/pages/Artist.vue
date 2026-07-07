@@ -49,7 +49,11 @@ const fallbackTrackCover = computed(() => artist.value?.tracks.find((t) => t.cov
 /** 折叠状态 */
 const collapsed = ref(false);
 
+let lastScrollTime = 0;
 const handleListScroll = (event: Event) => {
+  const now = performance.now();
+  if (now - lastScrollTime < 16) return;
+  lastScrollTime = now;
   const scrollTop = (event.target as HTMLElement).scrollTop;
   if (!collapsed.value && scrollTop > 10) {
     collapsed.value = true;
@@ -107,7 +111,7 @@ const onReachBottom = async (): Promise<void> => {
   }
 };
 
-loadArtist();
+loadArtist().catch(() => {});
 
 onBeforeUnmount(() => {
   loadAbort?.abort();
@@ -181,9 +185,13 @@ const onTabSwitch = (key: string): void => {
   router.replace({ query: { ...route.query, tab: key } });
 };
 
-watch(activeTab, (tab) => {
-  if (tab === "albums") collapsed.value = true;
-});
+watch(
+  activeTab,
+  (tab) => {
+    if (tab === "albums") collapsed.value = true;
+  },
+  { immediate: true },
+);
 
 const tabs = computed(() => {
   const items = [{ key: "songs", label: t("artist.songs") }];

@@ -82,3 +82,61 @@ export const refreshLogin = async (): Promise<void> => {
 export const logoutNetease = async (): Promise<void> => {
   await neteaseApi.logout();
 };
+
+export interface NeteaseLoginResult {
+  success: boolean;
+  message?: string;
+}
+
+const normalizeLoginResult = (body: {
+  code?: number;
+  message?: string;
+  msg?: string;
+}): NeteaseLoginResult => ({
+  success: body.code === 200,
+  message: body.message ?? body.msg,
+});
+
+export const loginByEmail = async (
+  email: string,
+  password: string,
+): Promise<NeteaseLoginResult> => {
+  const body = await neteaseApi.login({ email, password, timestamp: Date.now() });
+  return normalizeLoginResult(body ?? {});
+};
+
+export const loginByPhonePassword = async (
+  phone: string,
+  password: string,
+  countrycode = "86",
+): Promise<NeteaseLoginResult> => {
+  const body = await neteaseApi.login_cellphone({
+    phone,
+    password,
+    countrycode,
+    timestamp: Date.now(),
+  });
+  return normalizeLoginResult(body ?? {});
+};
+
+export const sendPhoneCaptcha = async (
+  phone: string,
+  ctcode = "86",
+): Promise<NeteaseLoginResult> => {
+  const body = await neteaseApi.captcha_sent({ phone, ctcode, timestamp: Date.now() });
+  return normalizeLoginResult(body ?? {});
+};
+
+export const loginByPhoneCaptcha = async (
+  phone: string,
+  captcha: string,
+  countrycode = "86",
+): Promise<NeteaseLoginResult> => {
+  const body = await neteaseApi.login_cellphone({
+    phone,
+    captcha,
+    countrycode,
+    timestamp: Date.now(),
+  });
+  return normalizeLoginResult(body ?? {});
+};

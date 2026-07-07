@@ -77,6 +77,7 @@ const appearanceCategory: SettingCategory = {
               key: "backgroundImage",
               type: "custom",
               component: BackgroundImagePicker,
+              hideDescription: true,
             },
             {
               key: "backgroundBlur",
@@ -119,6 +120,7 @@ const appearanceCategory: SettingCategory = {
           key: "fontConfig",
           type: "custom",
           component: FontConfig,
+          hideDescription: true,
         },
       ],
     },

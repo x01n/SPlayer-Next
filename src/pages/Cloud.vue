@@ -52,7 +52,7 @@ const handleMoreMenu = (key: string): void => {
 watch(
   () => user.isLoggedIn,
   (loggedIn) => {
-    if (loggedIn) user.ensureCloud();
+    if (loggedIn) user.ensureCloud().catch(() => {});
   },
   { immediate: true },
 );

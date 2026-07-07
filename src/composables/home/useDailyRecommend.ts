@@ -85,6 +85,7 @@ export const useDailyRecommend = () => {
     try {
       if (kind === "daily") return toSource("daily", await data.ensureDailyRecommend());
       if (kind === "liked") return toSource("liked", [...user.likedPlaylistTracks]);
+      if (!window.api?.library) return null;
       const res = await window.api.library.getRandomTracks(LOCAL_RANDOM_LIMIT);
       return toSource("local", res.success ? (res.data ?? []) : []);
     } catch (error) {

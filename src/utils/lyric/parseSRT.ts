@@ -29,10 +29,10 @@ const TIME_RE = /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/;
 const parseSrtTime = (value: string): number => {
   const m = TIME_RE.exec(value);
   if (!m) return 0;
-  const hr = parseInt(m[1]);
-  const min = parseInt(m[2]);
-  const sec = parseInt(m[3]);
-  let ms = parseInt(m[4]);
+  const hr = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const sec = parseInt(m[3], 10);
+  let ms = parseInt(m[4], 10);
   // 归一化毫秒位数
   if (m[4].length === 1) ms *= 100;
   else if (m[4].length === 2) ms *= 10;

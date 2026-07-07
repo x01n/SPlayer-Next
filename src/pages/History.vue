@@ -36,7 +36,7 @@ const handleClear = (): void => {
 };
 
 onMounted(() => {
-  history.load();
+  history.load().catch(() => {});
 });
 </script>
 

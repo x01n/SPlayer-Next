@@ -42,7 +42,7 @@ export const createWindow = (options: BrowserWindowConstructorOptions = {}): Bro
     ...options,
     webPreferences: {
       ...defaultOptions.webPreferences,
-      ...options.webPreferences,
+      ...(options.webPreferences ?? {}),
     },
   });
 };

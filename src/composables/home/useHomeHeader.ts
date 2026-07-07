@@ -131,10 +131,12 @@ export const useHomeHeader = () => {
   /** 拉取统计并重挑副标题 */
   const load = async (): Promise<void> => {
     await history.load();
-    try {
-      stats.value = await window.api.stats.getStatsSummary();
-    } catch (error) {
-      console.warn("[home] getStatsSummary failed:", error);
+    if (window.api?.stats) {
+      try {
+        stats.value = await window.api.stats.getStatsSummary();
+      } catch (error) {
+        console.warn("[home] getStatsSummary failed:", error);
+      }
     }
     subtitlePick.value = pickRandom(buildSubtitles());
   };

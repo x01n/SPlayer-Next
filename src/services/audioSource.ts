@@ -5,6 +5,8 @@ import { useStreamingStore } from "@/stores/streaming";
 import { useSettingsStore } from "@/stores/settings";
 import { usePluginsStore } from "@/stores/plugins";
 import { resolveNeteaseUrl } from "@/apis/song/netease";
+import { searchVideos, getVideoInfo, getAudioUrl, getVideoUrl } from "@/apis/bilibili";
+import { getNetworkState } from "@/services/network";
 import { ErrorCode } from "@shared/types/errors";
 import { handleError } from "@/utils/errors";
 
@@ -14,6 +16,7 @@ const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
   qqmusic: "tx",
   kugou: "kg",
   spotify: "sp",
+  bilibili: "bili",
 };
 
 /**
@@ -23,16 +26,56 @@ const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
 const isOnlinePlatform = (source: TrackSource): source is Platform =>
   source === "netease" || source === "qqmusic" || source === "kugou" || source === "spotify";
 
+/** 离线缓存回退时的音质档位优先级（从高到低） */
+const OFFLINE_QUALITY_PRIORITY: QualityLevel[] = ["hi-res", "lossless", "hq", "sq", "lq"];
+
+/**
+ * 离线时尝试查找任意音质档位的缓存
+ * @param track - 要解析的 track
+ * @param songLevel - 当前请求的音质档位
+ * @returns 命中的缓存路径，无缓存则返回 null
+ */
+const findOfflineCache = async (
+  track: Track,
+  songLevel: QualityLevel,
+): Promise<string | null> => {
+  // 只有 netease 和 streaming 的缓存键包含音质档位，需要回退查找
+  if (track.source === "netease" && track.id) {
+    for (const level of OFFLINE_QUALITY_PRIORITY) {
+      if (level === songLevel) continue; // 已在主流程中查过
+      const key = `o:netease:${track.id}:${level}`;
+      const cached = await window.api.cache.song.lookup(key);
+      if (cached) return cached;
+    }
+    return null;
+  }
+  if (track.source === "streaming" && track.serverId && track.originalId) {
+    for (const level of OFFLINE_QUALITY_PRIORITY) {
+      if (level === songLevel) continue;
+      const key = `s:${track.serverId}:${track.originalId}:${level}`;
+      const cached = await window.api.cache.song.lookup(key);
+      if (cached) return cached;
+    }
+    // 兼容旧版无 songLevel 后缀的缓存键
+    const legacyKey = `s:${track.serverId}:${track.originalId}:`;
+    const cached = await window.api.cache.song.lookup(legacyKey);
+    if (cached) return cached;
+    return null;
+  }
+  // 其他在线平台缓存键与音质无关，已在主流程中查过
+  return null;
+};
+
 /**
  * 派生缓存键
- * netease 把音质档位并入键，使不同音质的同一首歌互不覆盖
+ * netease / streaming 把音质档位并入键，使不同音质的同一首歌互不覆盖
  * @param track - 要解析的 track
  * @param songLevel - 在线歌曲音质档位
  * @returns 派生缓存键，如果该 track 不参与歌曲缓存则返回 null
  */
 const cacheKeyForTrack = (track: Track, songLevel: QualityLevel): string | null => {
   if (track.source === "streaming" && track.serverId && track.originalId) {
-    return `s:${track.serverId}:${track.originalId}:`;
+    return `s:${track.serverId}:${track.originalId}:${songLevel}`;
   }
   if (track.source === "netease" && track.id) {
     return `o:netease:${track.id}:${songLevel}`;
@@ -122,21 +165,56 @@ const resolveOnlineUrl = async (
       const resolved = await resolveNeteaseUrl(track, songLevel);
       if (resolved) return { url: resolved };
     }
-  } catch {
+  } catch (err) {
     // 官方 API 异常回落插件
+    console.warn("[audioSource] resolveNeteaseUrl failed:", err);
   }
   return resolveByPlugin(track);
+};
+
+/**
+ * 尝试 Bilibili fallback：当在线音源解析失败或音质较低时，搜索 Bilibili 视频提取音频
+ * @param track - 要解析的 track
+ * @returns 解析到的音频源和视频源，失败返回 null
+ */
+const tryBilibiliFallback = async (track: Track): Promise<ResolvedTrackSource | null> => {
+  try {
+    const keyword = `${track.title} ${track.artists.map((a) => a.name).join(" ")}`;
+    const resp = await searchVideos(keyword, 1, 5);
+    if (resp.items.length === 0) return null;
+    // 取第一个结果
+    const item = resp.items[0];
+    const { cid } = await getVideoInfo(item.bvid);
+    const [audioUrl, videoUrl] = await Promise.all([
+      getAudioUrl(item.bvid, cid),
+      getVideoUrl(item.bvid, cid),
+    ]);
+    return {
+      source: audioUrl,
+      fromCache: false,
+      videoUrl,
+      videoBvid: item.bvid,
+      videoCid: cid,
+    };
+  } catch (err) {
+    console.warn("[audioSource] Bilibili fallback failed:", err);
+    return null;
+  }
 };
 
 /**
  * 解析结果
  * - fromCache 为 true 时表示音源直接命中本地缓存
  * - cacheRequest 存在时表示尚未缓存，调用方应在合适时机（如播放达到阈值后）触发它
+ * - videoUrl / videoBvid / videoCid 存在时表示同时获取到了视频源（用于视频背景）
  */
 export interface ResolvedTrackSource {
   source: string;
   fromCache: boolean;
   cacheRequest?: () => Promise<void>;
+  videoUrl?: string;
+  videoBvid?: string;
+  videoCid?: number;
 }
 
 /**
@@ -155,6 +233,17 @@ export const resolveTrackSource = async (track: Track): Promise<ResolvedTrackSou
   if (cacheEnabled) {
     const cached = await window.api.cache.song.lookup(cacheKey!);
     if (cached) return { source: cached, fromCache: true };
+  }
+  // 离线时若启用了缓存回退，尝试查找任意音质档位的缓存
+  const offlineFallbackEnabled = settings.system.cache?.songCache?.offlineFallback !== false;
+  if (cacheEnabled && offlineFallbackEnabled) {
+    const net = await getNetworkState();
+    if (!net.online) {
+      const fallback = await findOfflineCache(track, songLevel);
+      if (fallback) return { source: fallback, fromCache: true };
+      // 离线且无缓存，直接失败
+      return null;
+    }
   }
   // 流媒体
   if (track.source === "streaming") {
@@ -181,19 +270,41 @@ export const resolveTrackSource = async (track: Track): Promise<ResolvedTrackSou
       return null;
     }
   }
-  // 在线源（netease / qqmusic / kugou）
+  // 在线源（netease / qqmusic / kugou / spotify）
   if (isOnlinePlatform(track.source)) {
     try {
+      // 如果启用了 Bili 高品质音频源，优先尝试 Bilibili fallback
+      const biliHqEnabled = settings.system.bilibili?.highQualityAudio === true;
+      if (biliHqEnabled) {
+        const fallback = await tryBilibiliFallback(track);
+        if (fallback) return fallback;
+      }
       const resolved = await resolveOnlineUrl(track, songLevel);
       if (resolved.url === null) {
+        // URL 解析失败时尝试 Bilibili fallback
+        const fallback = await tryBilibiliFallback(track);
+        if (fallback) return fallback;
         handleError(resolved.errorCode);
         return null;
+      }
+      // 音质较低时尝试 Bilibili fallback 获取更高品质
+      if (songLevel === "lq" || songLevel === "hq") {
+        const fallback = await tryBilibiliFallback(track);
+        if (fallback) return fallback;
       }
       const url = resolved.url;
       const result: ResolvedTrackSource = { source: url, fromCache: false };
       if (cacheEnabled) {
+        // 缓存下载时重新解析最新 URL，避免使用已失效的 URL
         result.cacheRequest = async () => {
-          void window.api.cache.song.fetch(cacheKey, track.source, url);
+          try {
+            const reResolved = await resolveOnlineUrl(track, songLevel);
+            if (reResolved.url) {
+              void window.api.cache.song.fetch(cacheKey, track.source, reResolved.url);
+            }
+          } catch (err) {
+            console.warn("[cache] cacheRequest re-resolve failed", err);
+          }
         };
       }
       return result;

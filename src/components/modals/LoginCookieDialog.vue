@@ -2,7 +2,10 @@
 import { toast } from "@/composables/useToast";
 import { useUserStore } from "@/stores/user";
 
-const props = defineProps<{ open: boolean }>();
+const props = defineProps<{
+  open: boolean;
+  platform?: "netease" | "kugou" | "bilibili";
+}>();
 const emit = defineEmits<{
   "update:open": [value: boolean];
   /** 登录成功 */
@@ -25,23 +28,62 @@ watch(
   },
 );
 
+/** 根据平台校验 cookie 格式 */
+const validateCookie = (value: string, platform: string): boolean => {
+  switch (platform) {
+    case "netease":
+      return /MUSIC_U\s*=/i.test(value);
+    case "kugou":
+      return value.length > 0;
+    case "bilibili":
+      return /SESSDATA/.test(value);
+    default:
+      return false;
+  }
+};
+
 const submit = async (): Promise<void> => {
   const value = raw.value.trim();
-  if (!value || !/MUSIC_U\s*=/i.test(value)) {
+  const platform = props.platform ?? "netease";
+  if (!value || !validateCookie(value, platform)) {
     toast.error(t("login.cookieInvalid"));
     return;
   }
   loading.value = true;
   try {
-    const res = await window.api.apis.setCookie("netease", value);
-    if (!res.ok) {
-      toast.error(t("login.cookieInvalid"));
-      return;
-    }
-    const ok = await user.fetchStatus();
-    if (!ok) {
-      toast.error(t("login.failed"));
-      return;
+    if (platform === "netease") {
+      const res = await window.api.apis.setCookie("netease", value);
+      if (!res.ok) {
+        toast.error(t("login.cookieInvalid"));
+        return;
+      }
+      const ok = await user.fetchStatus();
+      if (!ok) {
+        toast.error(t("login.failed"));
+        return;
+      }
+    } else if (platform === "kugou") {
+      const res = await window.api.apis.setCookie("kugou", value);
+      if (!res.ok) {
+        toast.error(t("login.cookieInvalid"));
+        return;
+      }
+      const ok = await user.kugouLogin(value);
+      if (!ok) {
+        toast.error(t("login.failed"));
+        return;
+      }
+    } else if (platform === "bilibili") {
+      const res = await window.api.apis.setCookie("bilibili", value);
+      if (!res.ok) {
+        toast.error(t("login.cookieInvalid"));
+        return;
+      }
+      const ok = await user.bilibiliLogin(value);
+      if (!ok) {
+        toast.error(t("login.failed"));
+        return;
+      }
     }
     toast.success(t("login.success"));
     emit("success");

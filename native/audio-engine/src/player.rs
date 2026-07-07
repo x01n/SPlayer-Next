@@ -367,9 +367,12 @@ impl InnerPlayer {
                     } else {
                         cb(PlayerEvent::Ended);
                     }
-                    cb(PlayerEvent::StateChanged {
-                        state: PlayerState::Stopped,
-                    });
+                    // 显式 stop() 时 stop_flag 已置位，避免重复发送 StateChanged(Stopped)
+                    if !stop_flag.load(Ordering::Relaxed) {
+                        cb(PlayerEvent::StateChanged {
+                            state: PlayerState::Stopped,
+                        });
+                    }
                     break;
                 }
 
@@ -469,35 +472,42 @@ impl InnerPlayer {
 
         // 停止当前播放（释放旧的 Sink / 解码线程）
         self.stop_internal();
+        // 避免后续 load/seek 失败时状态仍停留在旧状态，导致 UI 与内部实际状态不一致
+        self.state = PlayerState::Idle;
 
         // 重建音频输出（使用用户选择的设备或系统默认）
         // 旧 AudioOutput 在赋值时被 drop，其 owner 线程随之退出并 drop 旧 cpal::Stream
         self.output = Some(AudioOutput::new(self.selected_device_name.as_deref())?);
 
         // 恢复播放状态
-        match prev_state {
-            PlayerState::Playing | PlayerState::Paused => {
-                if let Some(source) = prev_source {
-                    // 先以暂停模式加载，避免 seek 前播出开头片段
-                    self.load(&source, false)?;
-                    if prev_position > 0.5 {
-                        self.seek(prev_position)?;
+        let result = (|| -> Result<()> {
+            match prev_state {
+                PlayerState::Playing | PlayerState::Paused => {
+                    if let Some(source) = prev_source {
+                        // 先以暂停模式加载，避免 seek 前播出开头片段
+                        self.load(&source, false)?;
+                        if prev_position > 0.5 {
+                            self.seek(prev_position)?;
+                        }
+                        self.set_volume(prev_volume);
+                        // 恢复到原来的播放/暂停状态；此时必为 Paused 态，play 不会返回复活源
+                        if prev_state == PlayerState::Playing {
+                            let _ = self.play()?;
+                        }
                     }
-                    self.set_volume(prev_volume);
-                    // 恢复到原来的播放/暂停状态；此时必为 Paused 态，play 不会返回复活源
-                    if prev_state == PlayerState::Playing {
-                        let _ = self.play()?;
-                    }
-                } else {
-                    self.state = PlayerState::Idle;
+                    Ok(())
+                }
+                _ => {
+                    self.state = prev_state;
+                    Ok(())
                 }
             }
-            _ => {
-                self.state = prev_state;
-            }
-        }
+        })();
 
-        Ok(())
+        if result.is_err() {
+            self.state = PlayerState::Idle;
+        }
+        result
     }
 
     /// 设置封面缓存目录

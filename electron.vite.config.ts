@@ -38,6 +38,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "electron/preload/index.ts"),
+          panel: resolve(__dirname, "electron/preload/panel.ts"),
         },
       },
     },
@@ -71,7 +72,7 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        "@": resolve("src"),
+        "@": resolve(__dirname, "src"),
         "@shared": resolve(__dirname, "shared"),
         "@windows": resolve(__dirname, "windows"),
         "@root": resolve(__dirname),

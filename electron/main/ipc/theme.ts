@@ -2,7 +2,7 @@ import { dialog, ipcMain } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { getBackgroundsDir } from "@main/utils/config";
+import { getBackgroundsDir, getAppCacheDir } from "@main/utils/config";
 import { toCacheUrl } from "@main/utils/protocol";
 import { systemLog } from "@main/utils/logger";
 
@@ -15,6 +15,12 @@ const MAX_BG_SIZE = 30 * 1024 * 1024;
 /**
  * 注册主题相关的 IPC
  */
+/** 允许的视频扩展名 */
+const allowedVideoExt = new Set([".mp4", ".webm", ".mov", ".mkv", ".avi"]);
+
+/** 视频体积上限：100MB */
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+
 export const registerThemeIpc = (): void => {
   /**
    * 弹出文件选择框，选择背景图后复制到 app-cache/backgrounds/<sha1>.<ext>
@@ -51,6 +57,43 @@ export const registerThemeIpc = (): void => {
       return toCacheUrl(dest) ?? null;
     } catch (err) {
       systemLog.error("[theme] pickBackgroundImage failed", err);
+      return null;
+    }
+  });
+
+  /**
+   * 弹出文件选择框，选择背景视频后复制到 app-cache/videos/<sha1>.<ext>
+   * 返回 cache:// URL；用户取消 / 体积超限 / 失败均返回 null
+   */
+  ipcMain.handle("theme:pickCustomVideo", async (): Promise<string | null> => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: "选择背景视频",
+        properties: ["openFile"],
+        filters: [{ name: "Videos", extensions: ["mp4", "webm", "mov", "mkv", "avi"] }],
+      });
+      if (result.canceled) return null;
+      const src = result.filePaths[0];
+      if (!src) return null;
+      const ext = path.extname(src).toLowerCase();
+      if (!allowedVideoExt.has(ext)) return null;
+      const stat = await fs.stat(src);
+      if (stat.size > MAX_VIDEO_SIZE) {
+        systemLog.warn(
+          `[theme] custom video too large: ${stat.size} bytes (max ${MAX_VIDEO_SIZE})`,
+        );
+        return null;
+      }
+      const data = await fs.readFile(src);
+      const hash = createHash("sha1").update(data).digest("hex").slice(0, 16);
+      const videosDir = path.join(getAppCacheDir(), "videos");
+      await fs.rm(videosDir, { recursive: true, force: true });
+      await fs.mkdir(videosDir, { recursive: true });
+      const dest = path.join(videosDir, `${hash}${ext}`);
+      await fs.writeFile(dest, data);
+      return toCacheUrl(dest) ?? null;
+    } catch (err) {
+      systemLog.error("[theme] pickCustomVideo failed", err);
       return null;
     }
   });

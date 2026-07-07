@@ -3,7 +3,7 @@
  * 负责房间的创建、销毁、成员管理和状态同步
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import type { WSContext } from "hono/ws";
 import type { Track } from "@shared/types/player";
 import type {
@@ -31,6 +31,15 @@ const rooms = new Map<string, ListenTogetherRoom>();
 const tokenMap = new Map<string, { roomId: string; memberId: string }>();
 /** WS上下文映射：ws -> token */
 export const wsTokenMap = new Map<WSContext, string>();
+
+const closeWsQuietly = (ws: WSContext): void => {
+  wsTokenMap.delete(ws);
+  try {
+    ws.close();
+  } catch {
+    // 忽略已关闭连接
+  }
+};
 /** 聊天消息缓存：房间ID -> 消息列表（上限100条） */
 const chatHistory = new Map<string, ListenTogetherChatMessage[]>();
 /** 活跃投票：提案ID -> 提案 */
@@ -60,7 +69,7 @@ const generateToken = (): string => {
 
 /** 生成房间密钥 */
 const generateRoomKey = (): string => {
-  return Math.random().toString(36).slice(2, 10).toUpperCase();
+  return randomBytes(4).toString("hex").toUpperCase();
 };
 
 /** 生成加密密钥 */
@@ -98,6 +107,7 @@ export const createRoom = (
         neteaseUserId: hostNeteaseUserId,
         joinedAt: Date.now(),
         lastActiveAt: Date.now(),
+        online: true,
       },
     ],
     blacklist: [],
@@ -135,7 +145,24 @@ export const closeRoom = (roomId: string): boolean => {
     return false;
   }
 
-  // 停止同步定时器
+  const closingTokens = new Set<string>();
+  for (const [token, info] of tokenMap.entries()) {
+    if (info.roomId === roomId) {
+      closingTokens.add(token);
+    }
+  }
+
+  const closeMessage = JSON.stringify({ kind: "roomClosed" });
+  for (const [ws, token] of wsTokenMap.entries()) {
+    if (!closingTokens.has(token)) continue;
+    try {
+      ws.send(closeMessage);
+    } catch {
+      // 忽略发送失败的连接
+    }
+    closeWsQuietly(ws);
+  }
+
   const timer = syncTimers.get(roomId);
   if (timer) {
     clearInterval(timer);
@@ -143,16 +170,10 @@ export const closeRoom = (roomId: string): boolean => {
     serverLog.info(`[ListenTogether] 房间同步定时器已停止: ${roomId}`);
   }
 
-  // 清理成员令牌
-  for (const member of room.members) {
-    for (const [token, info] of tokenMap.entries()) {
-      if (info.roomId === roomId && info.memberId === member.id) {
-        tokenMap.delete(token);
-      }
-    }
+  for (const token of closingTokens) {
+    tokenMap.delete(token);
   }
 
-  // 清理该房间的活跃投票
   for (const [proposalId, pRoomId] of proposalRoomMap.entries()) {
     if (pRoomId === roomId) {
       proposalRoomMap.delete(proposalId);
@@ -167,7 +188,6 @@ export const closeRoom = (roomId: string): boolean => {
   lastBroadcastSnapshots.delete(roomId);
   memberAudioSources.delete(roomId);
   messageSeqCounters.delete(roomId);
-  memberAudioSources.delete(roomId);
 
   serverLog.info(`[ListenTogether] 一起听房间已关闭: ${roomId}`);
   return true;
@@ -225,6 +245,8 @@ export const joinRoom = (
     const wsToken = generateToken();
     tokenMap.set(wsToken, { roomId, memberId: room.hostId });
     hostMember.lastActiveAt = Date.now();
+    hostMember.online = true;
+    delete hostMember.disconnectedAt;
 
     serverLog.info(
       `[ListenTogether] 房主重新加入房间成功: ${roomId}, ${nickname}, token: ${wsToken.slice(0, 8)}...`,
@@ -236,9 +258,18 @@ export const joinRoom = (
   const memberId = randomUUID();
   const token = generateToken();
 
-  // 检查是否在黑名单中
-  if (room.blacklist.includes(memberId)) {
-    serverLog.info(`[ListenTogether] 加入房间失败，成员在黑名单中: ${roomId}, ${memberId}`);
+  // 检查是否在黑名单中（基于 neteaseUserId，避免随机 memberId 永不命中）
+  if (neteaseUserId !== undefined) {
+    const neteaseIdStr = String(neteaseUserId);
+    if (room.blacklist.includes(neteaseIdStr)) {
+      serverLog.info(
+        `[ListenTogether] 加入房间失败，成员在黑名单中: ${roomId}, neteaseUserId=${neteaseUserId}`,
+      );
+      return { ok: false, error: "房间不存在" };
+    }
+  } else if (room.blacklist.length > 0) {
+    // 匿名用户且黑名单非空，拒绝加入
+    serverLog.info(`[ListenTogether] 加入房间失败，匿名用户被禁止: ${roomId}`);
     return { ok: false, error: "房间不存在" };
   }
 
@@ -249,6 +280,7 @@ export const joinRoom = (
     neteaseUserId,
     joinedAt: Date.now(),
     lastActiveAt: Date.now(),
+    online: true,
   };
 
   room.members.push(member);
@@ -282,17 +314,19 @@ export const leaveRoom = (
 
   const wasHost = room.hostId === memberId;
 
-  // 仅当是非hostToken的普通token时才从房间成员中移除
-  // hostToken对应的成员保留在房间中，仅注销WS会话
-  const hostToken = hostTokenMap.get(roomId);
-  const isHostToken = token === hostToken;
-
-  if (!isHostToken) {
+  // 仅当是非房主时才从房间成员中移除（房主重连后断开不应被误判为离开）
+  if (!wasHost) {
     room.members = room.members.filter((m) => m.id !== memberId);
     serverLog.info(
       `[ListenTogether] 成员从房间移除: ${roomId}, ${memberId}, 剩余成员数: ${room.members.length}`,
     );
   } else {
+    const hostMember = room.members.find((m) => m.id === memberId);
+    if (hostMember) {
+      hostMember.online = false;
+      hostMember.disconnectedAt = Date.now();
+      hostMember.lastActiveAt = hostMember.disconnectedAt;
+    }
     serverLog.info(`[ListenTogether] 房主WS会话断开，保留房主成员: ${roomId}`);
   }
 
@@ -307,10 +341,17 @@ export const leaveRoom = (
     }
   }
 
-  // 如果房主离开，关闭房间
-  if (wasHost && !isHostToken) {
-    serverLog.info(`[ListenTogether] 房主离开，关闭房间: ${roomId}`);
-    closeRoom(roomId);
+  // 如果离开者是 controllerId，重置为 hostId
+  if (room.controllerId === memberId && room.controllerId !== room.hostId) {
+    room.controllerId = room.hostId;
+    serverLog.info(
+      `[ListenTogether] 主控成员离开，重置主控为房主: ${roomId}, controllerId=${room.hostId}`,
+    );
+  }
+
+  // 房主离开不自动关闭房间，需通过 closeRoom 显式关闭
+  if (wasHost) {
+    serverLog.info(`[ListenTogether] 房主离开，保留房间: ${roomId}`);
     return { roomId, memberId, wasHost: true };
   }
 
@@ -321,8 +362,15 @@ export const leaveRoom = (
     return { roomId, memberId, wasHost: false };
   }
 
+  // 广播成员离开给房间内其他人
+  const memberLeftMsg = {
+    kind: "memberLeft",
+    data: { memberId, memberCount: room.members.length },
+  };
+  broadcastToRoom(roomId, memberLeftMsg);
+
   serverLog.info(`[ListenTogether] 成员离开房间完成: ${roomId}, ${memberId}`);
-  return { roomId, memberId, wasHost };
+  return { roomId, memberId, wasHost: false };
 };
 
 /** 踢出成员 */
@@ -350,15 +398,50 @@ export const kickMember = (roomId: string, hostId: string, memberId: string): bo
     return false;
   }
 
-  room.members = room.members.filter((m) => m.id !== memberId);
-
-  // 清理被踢成员的令牌
+  const removedTokens: string[] = [];
   for (const [token, info] of tokenMap.entries()) {
     if (info.roomId === roomId && info.memberId === memberId) {
-      tokenMap.delete(token);
-      break;
+      removedTokens.push(token);
     }
   }
+
+  const kickedMsg = JSON.stringify({ kind: "kicked", data: { memberId, reason: "被房主踢出" } });
+  for (const [ws, token] of wsTokenMap.entries()) {
+    if (!removedTokens.includes(token)) continue;
+    try {
+      ws.send(kickedMsg);
+    } catch {
+      // 忽略发送失败的连接
+    }
+    closeWsQuietly(ws);
+  }
+
+  for (const token of removedTokens) {
+    tokenMap.delete(token);
+  }
+
+  room.members = room.members.filter((m) => m.id !== memberId);
+
+  if (room.controllerId === memberId && room.controllerId !== room.hostId) {
+    room.controllerId = room.hostId;
+    serverLog.info(
+      `[ListenTogether] 被踢成员是主控，重置主控为房主: ${roomId}, controllerId=${room.hostId}`,
+    );
+  }
+
+  const roomAudioSources = memberAudioSources.get(roomId);
+  if (roomAudioSources) {
+    roomAudioSources.delete(memberId);
+    if (roomAudioSources.size === 0) {
+      memberAudioSources.delete(roomId);
+    }
+  }
+
+  const memberLeftMsg = {
+    kind: "memberLeft",
+    data: { memberId, memberCount: room.members.length },
+  };
+  broadcastToRoom(roomId, memberLeftMsg);
 
   serverLog.info(
     `[ListenTogether] 成员被踢出房间: ${roomId}, ${member.nickname}, 剩余成员数: ${room.members.length}`,
@@ -385,23 +468,80 @@ export const blacklistMember = (roomId: string, hostId: string, memberId: string
     return false;
   }
 
-  if (!room.blacklist.includes(memberId)) {
-    room.blacklist.push(memberId);
-    serverLog.info(`[ListenTogether] 成员已加入黑名单: ${roomId}, ${memberId}`);
+  const member = room.members.find((m) => m.id === memberId);
+  if (!member) {
+    serverLog.info(`[ListenTogether] 拉黑成员失败，成员不存在: ${roomId}, ${memberId}`);
+    return false;
   }
 
-  // 拉黑后同时踢出
-  kickMember(roomId, hostId, memberId);
+  if (member.neteaseUserId) {
+    const neteaseIdStr = String(member.neteaseUserId);
+    if (!room.blacklist.includes(neteaseIdStr)) {
+      room.blacklist.push(neteaseIdStr);
+      serverLog.info(
+        `[ListenTogether] 成员 neteaseUserId 已加入黑名单: ${roomId}, ${member.neteaseUserId}`,
+      );
+    }
+  }
+
+  const removedTokens: string[] = [];
+  for (const [token, info] of tokenMap.entries()) {
+    if (info.roomId === roomId && info.memberId === memberId) {
+      removedTokens.push(token);
+    }
+  }
+
+  const blacklistedMsg = JSON.stringify({
+    kind: "blacklisted",
+    data: { memberId, reason: "被房主拉黑" },
+  });
+  for (const [ws, token] of wsTokenMap.entries()) {
+    if (!removedTokens.includes(token)) continue;
+    try {
+      ws.send(blacklistedMsg);
+    } catch {
+      // 忽略发送失败的连接
+    }
+    closeWsQuietly(ws);
+  }
+
+  for (const token of removedTokens) {
+    tokenMap.delete(token);
+  }
+
+  room.members = room.members.filter((m) => m.id !== memberId);
+
+  if (room.controllerId === memberId && room.controllerId !== room.hostId) {
+    room.controllerId = room.hostId;
+    serverLog.info(
+      `[ListenTogether] 被拉黑成员是主控，重置主控为房主: ${roomId}, controllerId=${room.hostId}`,
+    );
+  }
+
+  const roomAudioSources = memberAudioSources.get(roomId);
+  if (roomAudioSources) {
+    roomAudioSources.delete(memberId);
+    if (roomAudioSources.size === 0) {
+      memberAudioSources.delete(roomId);
+    }
+  }
+
+  const memberLeftMsg = {
+    kind: "memberLeft",
+    data: { memberId, memberCount: room.members.length },
+  };
+  broadcastToRoom(roomId, memberLeftMsg);
 
   serverLog.info(`[ListenTogether] 拉黑成员完成: ${roomId}, ${memberId}`);
   return true;
 };
 
 /** 检查成员是否在黑名单 */
-export const isBlacklisted = (roomId: string, memberId: string): boolean => {
+export const isBlacklisted = (roomId: string, neteaseUserId: number | undefined): boolean => {
   const room = rooms.get(roomId);
   if (!room) return true;
-  return room.blacklist.includes(memberId);
+  if (neteaseUserId === undefined) return false;
+  return room.blacklist.includes(String(neteaseUserId));
 };
 
 /** 获取加密密钥 */
@@ -431,6 +571,8 @@ export const updateMemberActive = (token: string): void => {
   const result = getMemberByToken(token);
   if (result) {
     result.member.lastActiveAt = Date.now();
+    result.member.online = true;
+    delete result.member.disconnectedAt;
   }
 };
 

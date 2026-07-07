@@ -260,6 +260,42 @@ export interface StreamingSettings {
   enabled: boolean;
 }
 
+/** QQ 音乐配置 */
+export interface QQMusicSettings {
+  /** 登录态 cookie */
+  cookie: string | null;
+}
+
+/** 酷狗配置 */
+export interface KugouSettings {
+  /** 登录态 cookie */
+  cookie: string;
+}
+
+/** Bilibili 配置 */
+export interface BilibiliSettings {
+  /** 登录态 cookie */
+  cookie: string;
+  /** 启用 Bili 高品质音频源 */
+  highQualityAudio: boolean;
+}
+
+/** Spotify 配置 */
+export interface SpotifySettings {
+  /** Spotify Client ID */
+  clientId: string;
+  /** Spotify Client Secret */
+  clientSecret: string;
+  /** 用户 OAuth access token（运行时登录后写入） */
+  userAccessToken: string;
+  /** 用户 OAuth refresh token */
+  userRefreshToken: string;
+  /** 用户 token 过期时间戳（毫秒） */
+  userTokenExpireAt: number;
+  /** 浏览器登录 cookie（sp_dc） */
+  browserCookie: string;
+}
+
 /** 外部 API 服务配置 */
 export interface ExternalApiSettings {
   /** 总开关 */
@@ -310,6 +346,8 @@ export interface SongCacheSettings {
   enabled: boolean;
   /** 上限（GB），0 表示不限制；超限按 LRU 淘汰 */
   sizeLimitGb: number;
+  /** 离线时是否允许回退到任意音质档位的缓存 */
+  offlineFallback: boolean;
 }
 
 /** 缓存配置 */
@@ -425,6 +463,14 @@ export interface SystemConfig {
   download: DownloadSettings;
   /** 流媒体总开关 */
   streaming: StreamingSettings;
+  /** QQ 音乐配置 */
+  qqmusic: QQMusicSettings;
+  /** 酷狗配置 */
+  kugou: KugouSettings;
+  /** Bilibili 配置 */
+  bilibili: BilibiliSettings;
+  /** Spotify 配置 */
+  spotify: SpotifySettings;
   /** Last.fm 集成配置 */
   lastfm: LastfmSettings;
   /** 一起听配置 */ listenTogether: ListenTogetherSettings;
@@ -474,7 +520,7 @@ export interface ConfigApi {
   /** 整盘替换主进程配置 */
   replaceAll: (config: unknown) => Promise<void>;
   /** 写入用户选择的备份文件 */
-  exportToFile: (payload: unknown) => Promise<{ ok: boolean; reason?: "canceled" | "writeFailed" }>;
+  exportToFile: (payload?: unknown) => Promise<{ ok: boolean; reason?: "canceled" | "writeFailed" }>;
   /** 读取用户选择的备份文件 */
   importFromFile: () => Promise<
     { ok: true; data: unknown } | { ok: false; reason: "canceled" | "readFailed" | "parseFailed" }

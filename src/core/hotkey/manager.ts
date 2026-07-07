@@ -73,7 +73,7 @@ export const installHotkeyManager = (): void => {
   recompile();
   stopWatchBindings = watch(() => useHotkeyStore().bindings, recompile, { deep: true });
   window.addEventListener("keydown", onKeyDown, { capture: true });
-  offGlobalTrigger = window.api.hotkey.onTrigger((id) => dispatch(id));
+  offGlobalTrigger = window.api?.hotkey.onTrigger((id) => dispatch(id)) ?? null;
 };
 
 /** 卸载（仅测试 / HMR 用） */

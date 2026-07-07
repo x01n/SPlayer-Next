@@ -5,6 +5,7 @@
  * - cookies 字段以 JSON 字符串存 Record<string, string>
  */
 
+import { decryptSecureText, encryptSecureText, isSecureText } from "@main/utils/secureText";
 import { getDb } from "./index";
 
 /** 支持的音源平台标识 */
@@ -23,7 +24,9 @@ export const getSessionCookies = (platform: AccountPlatform): Record<string, str
     .get(platform) as Pick<SessionRow, "cookies"> | undefined;
   if (!row) return {};
   try {
-    const parsed = JSON.parse(row.cookies) as Record<string, string>;
+    const plain = decryptSecureText(row.cookies);
+    const parsed = JSON.parse(plain) as Record<string, string>;
+    if (plain && !isSecureText(row.cookies)) saveSessionCookies(platform, parsed ?? {});
     return parsed ?? {};
   } catch {
     return {};
@@ -42,7 +45,7 @@ export const saveSessionCookies = (
          cookies = excluded.cookies,
          updated_at = excluded.updated_at`,
     )
-    .run(platform, JSON.stringify(cookies), Date.now());
+    .run(platform, encryptSecureText(JSON.stringify(cookies)), Date.now());
 };
 
 /** 清除某平台的 cookies（登出） */

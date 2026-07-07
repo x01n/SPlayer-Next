@@ -20,6 +20,7 @@ const mediaSourceCategory: SettingCategory = {
           type: "custom",
           component: StreamingServerList,
           fullWidth: true,
+          hideDescription: true,
           keywords: ["streaming.server.add", "streaming.server.test", "streaming.server.connect"],
         },
       ],

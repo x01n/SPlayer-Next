@@ -79,21 +79,21 @@ const parseJoinLink = async (): Promise<{
     const serverUrl = url.hostname || "127.0.0.1";
     const port = parseInt(url.port || "14558", 10);
 
-    // 优先尝试 query 参数格式
-    const roomId = url.searchParams.get("roomId");
-    const roomKey = url.searchParams.get("roomKey");
-    if (roomId && roomKey) {
-      return { serverUrl, port, roomId, roomKey };
-    }
-
-    // 尝试 base62 邀请码格式 /i/xxx
-    const pathMatch = url.pathname.match(/\/i\/(.+)/);
+    // 优先尝试 base62 邀请码格式 /i/xxx
+    const pathMatch = url.pathname.match(/^\/i\/([^/]+)\/?$/);
     if (pathMatch) {
       const inviteCode = pathMatch[1];
       const decoded = await window.api.listenTogether.decodeInviteCode(inviteCode);
       if (decoded) {
         return { serverUrl, port, roomId: decoded.roomId, roomKey: decoded.roomKey };
       }
+    }
+
+    // 兼容旧格式 query 参数
+    const roomId = url.searchParams.get("roomId");
+    const roomKey = url.searchParams.get("roomKey");
+    if (roomId && roomKey) {
+      return { serverUrl, port, roomId, roomKey };
     }
 
     return null;
@@ -186,9 +186,9 @@ const handleCopyLink = async (): Promise<void> => {
 const handleKick = async (memberId: string): Promise<void> => {
   const success = await store.kickMember(memberId);
   if (success) {
-    toast.success(t("listenTogether.room.kickSuccess"));
+    toast.success(t("listenTogether.page.kickSuccess"));
   } else {
-    toast.error(t("listenTogether.room.kickFailed"));
+    toast.error(t("listenTogether.page.kickFailed"));
   }
 };
 
@@ -196,9 +196,9 @@ const handleKick = async (memberId: string): Promise<void> => {
 const handleBlacklist = async (memberId: string): Promise<void> => {
   const success = await store.blacklistMember(memberId);
   if (success) {
-    toast.success(t("listenTogether.room.blacklistSuccess"));
+    toast.success(t("listenTogether.page.blacklistSuccess"));
   } else {
-    toast.error(t("listenTogether.room.blacklistFailed"));
+    toast.error(t("listenTogether.page.blacklistFailed"));
   }
 };
 
@@ -256,17 +256,22 @@ const showAddSong = ref(false);
 const addSongKeyword = ref("");
 const searchResults = ref<Track[]>([]);
 const searching = ref(false);
+let searchAbort: AbortController | null = null;
 
 /** 添加当前播放歌曲到队列 */
 const handleAddCurrentSong = async (): Promise<void> => {
   const track = media.track;
   if (!track) {
-    toast.error(t("listenTogether.page.noPlayingTrack") ?? "当前没有播放歌曲");
+    toast.error(t("listenTogether.page.noPlayingTrack") || "当前没有播放歌曲");
     return;
   }
-  await store.sendQueueAction("add", { track });
-  toast.success(t("listenTogether.page.songAdded") ?? "已添加歌曲");
-  showAddSong.value = false;
+  const success = await store.sendQueueAction("add", { track });
+  if (success) {
+    toast.success(t("listenTogether.page.songAdded") || "已添加歌曲");
+    showAddSong.value = false;
+  } else {
+    toast.error(t("listenTogether.page.addSongFailed") || "添加歌曲失败");
+  }
 };
 
 const searchPlatform = ref<Platform>("netease");
@@ -275,31 +280,47 @@ const searchPlatform = ref<Platform>("netease");
 const handleSearchSong = async (): Promise<void> => {
   const keyword = addSongKeyword.value.trim();
   if (!keyword) return;
+  searchAbort?.abort();
+  const myAbort = new AbortController();
+  searchAbort = myAbort;
   searching.value = true;
   try {
     const result = await searchSongs(searchPlatform.value, keyword, 0, 10);
+    if (myAbort.signal.aborted) return;
     searchResults.value = result.items.slice(0, 10);
   } catch (err) {
+    if (myAbort.signal.aborted) return;
     console.error("[ListenTogether] 搜索失败:", err);
-    toast.error(t("common.searchFailed") ?? "搜索失败");
+    toast.error(t("common.searchFailed") || "搜索失败");
   } finally {
-    searching.value = false;
+    if (!myAbort.signal.aborted) searching.value = false;
   }
 };
 
 /** 添加搜索到的歌曲到队列 */
 const handleAddSearchSong = async (track: Track): Promise<void> => {
-  await store.sendQueueAction("add", { track });
-  toast.success(t("listenTogether.page.songAdded") ?? "已添加歌曲");
-  showAddSong.value = false;
-  addSongKeyword.value = "";
-  searchResults.value = [];
+  const success = await store.sendQueueAction("add", { track });
+  if (success) {
+    toast.success(t("listenTogether.page.songAdded") || "已添加歌曲");
+    showAddSong.value = false;
+    addSongKeyword.value = "";
+    searchResults.value = [];
+  } else {
+    toast.error(t("listenTogether.page.addSongFailed") || "添加歌曲失败");
+  }
 };
 
 /** 移除队列中的歌曲 */
 const handleRemoveSong = async (index: number): Promise<void> => {
-  await store.sendQueueAction("remove", { index });
+  const success = await store.sendQueueAction("remove", { index });
+  if (!success) {
+    toast.error(t("listenTogether.page.removeSongFailed") || "移除歌曲失败");
+  }
 };
+
+onBeforeUnmount(() => {
+  searchAbort?.abort();
+});
 </script>
 
 <template>
@@ -581,19 +602,19 @@ const handleRemoveSong = async (index: number): Promise<void> => {
 
           <div class="flex items-center gap-2">
             <div class="flex-1 h-px bg-outline-variant/20" />
-            <span class="text-xs text-on-surface-variant/40">{{ t("common.or") ?? "或" }}</span>
+            <span class="text-xs text-on-surface-variant/40">{{ t("common.or") || "或" }}</span>
             <div class="flex-1 h-px bg-outline-variant/20" />
           </div>
 
           <div class="flex gap-2">
             <SInput
               v-model="addSongKeyword"
-              :placeholder="t('listenTogether.page.searchSongPlaceholder') ?? '搜索歌曲'"
+              :placeholder="t('listenTogether.page.searchSongPlaceholder') || '搜索歌曲'"
               class="flex-1"
               @keydown.enter="handleSearchSong"
             />
             <SButton :loading="searching" @click="handleSearchSong">
-              {{ t("common.search") ?? "搜索" }}
+              {{ t("common.search") || "搜索" }}
             </SButton>
           </div>
 
@@ -614,7 +635,7 @@ const handleRemoveSong = async (index: number): Promise<void> => {
                 </p>
               </div>
               <SButton type="primary" size="small">
-                {{ t("common.add") ?? "添加" }}
+                {{ t("common.add") || "添加" }}
               </SButton>
             </div>
           </div>

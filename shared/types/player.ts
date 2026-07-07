@@ -106,6 +106,19 @@ export interface Track {
   fee?: TrackFee;
   /** 云盘歌曲 */
   cloud?: boolean;
+  /** 关联视频源（MV / 音乐视频） */
+  video?: {
+    /** 视频 URL */
+    url: string;
+    /** MIME 类型 */
+    mime?: string;
+    /** 视频来源 */
+    source?: "bilibili" | "custom";
+    /** Bilibili BV 号 */
+    bvid?: string;
+    /** Bilibili 视频 cid */
+    cid?: number;
+  };
 }
 
 /** 歌曲详细信息 */
@@ -240,7 +253,7 @@ export interface PlayerApi {
   /** 获取当前选择的输出设备名称 */
   getSelectedDeviceName: () => Promise<IpcResponse<string | null>>;
   /** 同步播放模式到托盘 */
-  syncPlayMode: (repeatMode: string, shuffleMode: string) => void;
+  syncPlayMode: (repeatMode: RepeatMode, shuffleMode: ShuffleMode) => void;
   /** 同步当前歌曲喜欢状态到托盘 */
   syncLikeState: (liked: boolean) => void;
   /** 广播播放控制事件 */

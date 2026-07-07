@@ -3,7 +3,7 @@
  */
 
 import type { Track, TrackDetail } from "@shared/types/player";
-import type { LyricData, LyricFormat, LyricInput } from "@shared/types/lyrics";
+import type { LyricData, LyricFormat, LyricInput, LyricMatchResult } from "@shared/types/lyrics";
 import type { Platform } from "@shared/types/platform";
 import { isPlatform } from "@shared/types/platform";
 import { bestExternalIndex, detectFormat } from "@/utils/lyric/parse";
@@ -54,25 +54,30 @@ const fetchFromPlatform = async (
   platform: Platform,
   track: Track,
 ): Promise<OnlineResult | null> => {
-  const mode = track.source === platform ? "byId" : "byQuery";
-  // QM lyric 接口要数字 songID
-  const lookupId = platform === "qqmusic" ? (track.extId ?? track.id) : track.id;
-  const resp =
-    mode === "byId"
-      ? await window.api.lyrics.matchById(platform, lookupId)
-      : await window.api.lyrics.matchByQuery(platform, track);
-  if (!resp.ok || !resp.data) return null;
-  const data = resp.data;
-  return {
-    source: { source: "online", format: data.format, platform: data.platform },
-    input: {
-      content: data.content,
-      translation: data.translation,
-      translationFormat: data.translationFormat,
-      romaji: data.romaji,
-      romajiFormat: data.romajiFormat,
-    },
-  };
+  try {
+    const mode = track.source === platform ? "byId" : "byQuery";
+    // QM lyric 接口要数字 songID
+    const lookupId = platform === "qqmusic" ? (track.extId ?? track.id) : track.id;
+    const resp =
+      mode === "byId"
+        ? await window.api.lyrics.matchById(platform, lookupId)
+        : await window.api.lyrics.matchByQuery(platform, track);
+    if (!resp.ok || !resp.data) return null;
+    const data = resp.data;
+    return {
+      source: { source: "online", format: data.format, platform: data.platform },
+      input: {
+        content: data.content,
+        translation: data.translation,
+        translationFormat: data.translationFormat,
+        romaji: data.romaji,
+        romajiFormat: data.romajiFormat,
+      },
+    };
+  } catch (err) {
+    console.warn(`[lyricLoader] fetchFromPlatform ${platform} failed:`, err);
+    return null;
+  }
 };
 
 /**
@@ -102,6 +107,7 @@ const PLATFORM_MAIN_FORMATS: Record<Platform, LyricFormat[]> = {
   qqmusic: ["qrc", "lrc"],
   kugou: ["krc", "lrc"],
   spotify: ["lrc"],
+  bilibili: [],
 };
 
 /**
@@ -200,25 +206,33 @@ const tryOnlineByPreference = async (
       candidates = order.filter((p) => platformCanUpgrade(p, localFormat, formatOrder));
       if (candidates.length === 0) return null;
     }
-    // smart：并行拉所有候选，谁先回有内容就先 commit，后到的 rank 更高才替换
+    // smart：并行拉所有候选，结束后统一取最优 commit
     if (settings.lyric.smartPreferOnline) {
       let best: OnlineResult | null = null;
       const localIdx = hasLocal && localFormat ? formatOrder.indexOf(localFormat) : -1;
       let bestRank = localIdx === -1 ? Infinity : localIdx;
-      await Promise.all(
+      const results = await Promise.all(
         candidates.map(async (platform) => {
-          const result = await fetchFromPlatform(platform, track);
-          if (token !== currentToken || !result) return;
-          const idx = formatOrder.indexOf(result.source.format);
-          const rank = idx === -1 ? Infinity : idx;
-          if (rank < bestRank) {
-            best = result;
-            bestRank = rank;
-            commit(token, result.source, result.input);
+          try {
+            const result = await fetchFromPlatform(platform, track);
+            if (token !== currentToken || !result) return null;
+            const idx = formatOrder.indexOf(result.source.format);
+            const rank = idx === -1 ? Infinity : idx;
+            return { result, rank };
+          } catch {
+            return null;
           }
         }),
       );
       if (token !== currentToken) return null;
+      for (const item of results) {
+        if (!item) continue;
+        if (item.rank < bestRank) {
+          best = item.result;
+          bestRank = item.rank;
+        }
+      }
+      if (best) commit(token, best.source, best.input);
       return best;
     }
     // 其它：按音源顺序首个有效即返回
@@ -269,10 +283,9 @@ const applyOnline = async (
     current?.source === "online" &&
     current.platform === online.source.platform &&
     current.format === online.source.format;
-  if (!alreadyCommitted) {
-    commit(token, online.source, online.input);
-    if (token !== currentToken) return;
-  }
+  if (alreadyCommitted) return;
+  commit(token, online.source, online.input);
+  if (token !== currentToken) return;
   if (media.parsedLyric.length === 0) {
     if (fallbackLocal) {
       commitLocal(token, fallbackLocal);
@@ -432,42 +445,62 @@ export const loadForTrack = async (detail: TrackDetail | null): Promise<void> =>
   }
 };
 
-/** 偏好变化时的刷新 */
+
+/**
+ * 应用手动搜索到的歌词
+ * @param result - 歌词匹配结果
+ */
+export const applyManualLyric = (result: LyricMatchResult): void => {
+  if (!result.content || !result.content.trim()) return;
+  const token = beginLoad();
+  commit(token, { source: "online", format: result.format, platform: result.platform }, {
+    content: result.content,
+    translation: result.translation,
+    translationFormat: result.translationFormat,
+    romaji: result.romaji,
+    romajiFormat: result.romajiFormat,
+  });
+};
 const refreshPreference = async (): Promise<void> => {
   currentToken++;
   const token = currentToken;
-  const media = useMediaStore();
-  const track = media.track;
-  if (!track) return;
-  // 本地 TTML 歌词库最高优先
-  if (await tryLocalRepo(token, track)) return;
-  if (token !== currentToken) return;
-  if (track.source === "streaming") return;
-  // 在线歌曲（任一在线平台）
-  if (isPlatform(track.source)) {
-    const online = await tryOnlineByPreference(token, track, false, null);
+  try {
+    const media = useMediaStore();
+    const track = media.track;
+    if (!track) return;
+    // 本地 TTML 歌词库最高优先
+    if (await tryLocalRepo(token, track)) return;
     if (token !== currentToken) return;
-    if (online) await applyOnline(token, track, online, null);
-    else if (!(await tryPluginFallback(token, track))) commit(token, null, null);
-    return;
+    if (track.source === "streaming") return;
+    // 在线歌曲（任一在线平台）
+    if (isPlatform(track.source)) {
+      const online = await tryOnlineByPreference(token, track, false, null);
+      if (token !== currentToken) return;
+      if (online) await applyOnline(token, track, online, null);
+      else if (!(await tryPluginFallback(token, track))) commit(token, null, null);
+      return;
+    }
+    // 本地歌曲
+    const detail = media.detail;
+    const local = detail ? await readLocal(detail) : null;
+    if (token !== currentToken) return;
+    const localFormat = local?.source.format ?? null;
+    const showingOnline = media.activeLyric?.source === "online";
+    /** 按偏好获取歌词 */
+    const online = await tryOnlineByPreference(token, track, !!local, localFormat);
+    if (token !== currentToken) return;
+    if (online) {
+      await applyOnline(token, track, online, local);
+      return;
+    }
+    // 目标是本地
+    if (!showingOnline) return;
+    if (local) commitLocal(token, local);
+    else commit(token, null, null);
+  } catch (err) {
+    console.error("[lyricLoader] refreshPreference failed:", err);
+    commit(token, null, null);
   }
-  // 本地歌曲
-  const detail = media.detail;
-  const local = detail ? await readLocal(detail) : null;
-  if (token !== currentToken) return;
-  const localFormat = local?.source.format ?? null;
-  const showingOnline = media.activeLyric?.source === "online";
-  /** 按偏好获取歌词 */
-  const online = await tryOnlineByPreference(token, track, !!local, localFormat);
-  if (token !== currentToken) return;
-  if (online) {
-    await applyOnline(token, track, online, local);
-    return;
-  }
-  // 目标是本地
-  if (!showingOnline) return;
-  if (local) commitLocal(token, local);
-  else commit(token, null, null);
 };
 
 /** 监听歌词偏好变化 */
@@ -477,9 +510,10 @@ export const watchLyricPreference = (): void => {
     () => [
       settings.lyric.lyricSourcePreference,
       settings.lyric.smartPreferOnline,
-      settings.system.lyric.enableOnlineTTMLLyric,
-      settings.system.localLyric.enableLocalTTMLOverride,
-      settings.system.localLyric.repoDir,
+      settings.lyric.lyricFormatOrder,
+      settings.system.lyric?.enableOnlineTTMLLyric,
+      settings.system.localLyric?.enableLocalTTMLOverride,
+      settings.system.localLyric?.repoDir,
     ],
     () => {
       refreshPreference();

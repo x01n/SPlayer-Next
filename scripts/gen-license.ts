@@ -25,11 +25,21 @@ const mdToText = (md: string): string => {
     .trim();
 };
 
-const raw = fs.readFileSync(src, "utf-8");
-const text = mdToText(raw);
-const final = "﻿" + text.replace(/\r?\n/g, "\r\n") + "\r\n";
+/** 主函数 */
+const main = (): void => {
+  try {
+    const raw = fs.readFileSync(src, "utf-8");
+    const text = mdToText(raw);
+    const final = "\ufeff" + text.replace(/\r?\n/g, "\r\n") + "\r\n";
 
-fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(out, final, "utf-8");
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(out, final, "utf-8");
 
-console.log(`license generated: ${path.relative(root, out)} (${final.length} chars)`);
+    console.log(`license generated: ${path.relative(root, out)} (${final.length} chars)`);
+  } catch (err) {
+    console.error("生成 license.txt 失败:", err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+};
+
+main();

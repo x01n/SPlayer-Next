@@ -1,12 +1,35 @@
 import localforage from "localforage";
 import type { Album, Artist, Playlist, Track } from "@shared/types/player";
-import type { UserProfile, UserSubcount } from "@/types/user";
+import type { UserProfile, UserSubcount, SpotifyUserProfile, QQMusicUserProfile, KugouUserProfile, BilibiliUserProfile } from "@/types/user";
 import { clearNeteaseSession } from "@/apis/netease";
 import {
   fetchLoginStatus,
   refreshLogin as refreshLoginApi,
   logoutNetease,
 } from "@/apis/login/netease";
+import {
+  fetchQQMusicLoginStatus,
+  loginQQMusic as loginQQMusicApi,
+  logoutQQMusic,
+} from "@/apis/login/qqmusic";
+import {
+  loginSpotify as loginSpotifyApi,
+  fetchSpotifyStatus,
+  logoutSpotify as logoutSpotifyApi,
+} from "@/apis/login/spotify";
+import {
+  fetchKugouLoginStatus,
+  loginKugou as loginKugouApi,
+  logoutKugou as logoutKugouApi,
+} from "@/apis/login/kugou";
+import {
+  fetchBilibiliLoginStatus,
+  loginBilibili as loginBilibiliApi,
+  loginBilibiliByBrowser,
+  loginBilibiliByPassword,
+  logoutBilibili as logoutBilibiliApi,
+} from "@/apis/login/bilibili";
+import { setBiliCookie } from "@/apis/bilibili";
 import {
   fetchLikelist,
   fetchSubcount,
@@ -69,12 +92,28 @@ const EMPTY_SUBCOUNT: UserSubcount = {
 export const useUserStore = defineStore(
   "user",
   () => {
-    /** 用户基础资料 */
+    /** 网易云用户基础资料 */
     const profile = ref<UserProfile | null>(null);
+    /** QQ 音乐用户基础资料 */
+    const qqmusicProfile = ref<QQMusicUserProfile | null>(null);
+    /** Spotify 用户基础资料 */
+    const spotifyProfile = ref<SpotifyUserProfile | null>(null);
+    /** 酷狗用户基础资料 */
+    const kugouProfile = ref<KugouUserProfile | null>(null);
+    /** Bilibili 用户基础资料 */
+    const bilibiliProfile = ref<BilibiliUserProfile | null>(null);
     /** 上一次 login_refresh 时间戳（毫秒） */
     const lastRefreshAt = ref<number>(0);
     /** 是否已登录 */
     const isLoggedIn = computed(() => profile.value !== null);
+    /** QQ 音乐是否已登录 */
+    const isQQMusicLoggedIn = computed(() => qqmusicProfile.value !== null);
+    /** Spotify 是否已登录 */
+    const isSpotifyLoggedIn = computed(() => spotifyProfile.value !== null);
+    /** 酷狗是否已登录 */
+    const isKugouLoggedIn = computed(() => kugouProfile.value !== null);
+    /** Bilibili 是否已登录 */
+    const isBilibiliLoggedIn = computed(() => bilibiliProfile.value !== null);
     /** 全部歌单 */
     const playlists = shallowRef<Playlist[]>([]);
     /** 红心歌曲 id 集合 */
@@ -137,10 +176,11 @@ export const useUserStore = defineStore(
       level.value = undefined;
       subcount.value = EMPTY_SUBCOUNT;
       likedPlaylistAbort?.abort();
+      likedPlaylistAbort = null;
       likedPlaylistTracks.value = [];
-      likedPlaylistLoading.value = false;
       currentLikedPlaylistId = null;
       cloudAbort?.abort();
+      cloudAbort = null;
       cloudTracks.value = [];
       cloudCount.value = 0;
       cloudSize.value = 0;
@@ -443,6 +483,15 @@ export const useUserStore = defineStore(
         for (const trackId of trackIds) next.add(trackId);
         likedSongIds.value = next;
         cacheDb.setItem(LIKED_SONG_IDS_CACHE_KEY, [...next]).catch(() => {});
+        if (likedPlaylistTracks.value.length > 0) {
+          const { songsByIds } = await import("@/apis/song/netease");
+          const newTracks = await songsByIds(trackIds);
+          const existingIds = new Set(likedPlaylistTracks.value.map((t) => t.id));
+          const uniqueNew = newTracks.filter((t) => !existingIds.has(t.id));
+          if (uniqueNew.length > 0) {
+            likedPlaylistTracks.value = [...likedPlaylistTracks.value, ...uniqueNew];
+          }
+        }
       }
       await refreshPlaylists();
       return count;
@@ -528,6 +577,37 @@ export const useUserStore = defineStore(
       }
     };
 
+    /** QQ 音乐登录 */
+    const qqmusicLogin = async (): Promise<boolean> => {
+      try {
+        const latest = await loginQQMusicApi();
+        if (latest) {
+          qqmusicProfile.value = latest;
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.warn("[user] qqmusic login failed:", err);
+        return false;
+      }
+    };
+
+    /** 获取 QQ 音乐登录状态 */
+    const qqmusicFetchStatus = async (): Promise<boolean> => {
+      try {
+        const latest = await fetchQQMusicLoginStatus();
+        if (latest) {
+          qqmusicProfile.value = latest;
+          return true;
+        }
+        qqmusicProfile.value = null;
+        return false;
+      } catch {
+        // 网络失败保留缓存的 profile
+        return qqmusicProfile.value !== null;
+      }
+    };
+
     /** 登出 */
     const logout = async (): Promise<void> => {
       try {
@@ -541,12 +621,205 @@ export const useUserStore = defineStore(
       syncContent(undefined);
     };
 
+    /** QQ 音乐登出 */
+    const qqmusicLogout = async (): Promise<void> => {
+      try {
+        await logoutQQMusic();
+      } catch {
+        console.error("[user] qqmusic logout failed");
+      }
+      qqmusicProfile.value = null;
+    };
+
+    /** Spotify 登录 */
+    const spotifyLogin = async (): Promise<boolean> => {
+      try {
+        const profile = await loginSpotifyApi();
+        spotifyProfile.value = {
+          id: profile.id,
+          displayName: profile.displayName,
+          email: profile.email,
+          avatarUrl: profile.avatarUrl,
+        };
+        return true;
+      } catch (err) {
+        console.warn("[user] spotify login failed:", err);
+        return false;
+      }
+    };
+
+    /** 获取 Spotify 登录状态 */
+    const spotifyFetchStatus = async (): Promise<boolean> => {
+      try {
+        const profile = await fetchSpotifyStatus();
+        if (profile) {
+          spotifyProfile.value = {
+            id: profile.id,
+            displayName: profile.displayName,
+            email: profile.email,
+            avatarUrl: profile.avatarUrl,
+          };
+          return true;
+        }
+        spotifyProfile.value = null;
+        return false;
+      } catch {
+        return spotifyProfile.value !== null;
+      }
+    };
+
+    /** Spotify 登出 */
+    const spotifyLogout = async (): Promise<void> => {
+      try {
+        await logoutSpotifyApi();
+      } catch {
+        console.error("[user] spotify logout failed");
+      }
+      spotifyProfile.value = null;
+    };
+
+    /** 酷狗登录 */
+    const kugouLogin = async (cookie?: string): Promise<boolean> => {
+      try {
+        const ok = cookie ? await loginKugouApi(cookie) : false;
+        if (ok) {
+          const latest = await fetchKugouLoginStatus();
+          if (latest) {
+            kugouProfile.value = latest;
+            return true;
+          }
+        }
+        return false;
+      } catch (err) {
+        console.warn("[user] kugou login failed:", err);
+        return false;
+      }
+    };
+
+    /** 获取酷狗登录状态 */
+    const kugouFetchStatus = async (): Promise<boolean> => {
+      try {
+        const latest = await fetchKugouLoginStatus();
+        if (latest) {
+          kugouProfile.value = latest;
+          return true;
+        }
+        kugouProfile.value = null;
+        return false;
+      } catch {
+        return kugouProfile.value !== null;
+      }
+    };
+
+    /** 酷狗登出 */
+    const kugouLogout = async (): Promise<void> => {
+      try {
+        await logoutKugouApi();
+      } catch {
+        console.error("[user] kugou logout failed");
+      }
+      kugouProfile.value = null;
+    };
+
+    /** Bilibili 登录 */
+    const bilibiliLogin = async (cookie?: string): Promise<boolean> => {
+      try {
+        let ok: boolean;
+        if (cookie) {
+          ok = await loginBilibiliApi(cookie);
+        } else {
+          ok = await loginBilibiliByBrowser();
+        }
+        if (ok) {
+          const latest = await fetchBilibiliLoginStatus();
+          if (latest) {
+            bilibiliProfile.value = latest;
+            if (cookie) setBiliCookie(cookie);
+            return true;
+          }
+        }
+        return false;
+      } catch (err) {
+        console.warn("[user] bilibili login failed:", err);
+        return false;
+      }
+    };
+
+    /** Bilibili 密码登录 */
+    const bilibiliPasswordLogin = async (username: string, password: string): Promise<boolean> => {
+      try {
+        const result = await loginBilibiliByPassword(username, password);
+        if (result.success) {
+          const latest = await fetchBilibiliLoginStatus();
+          if (latest) {
+            bilibiliProfile.value = latest;
+            return true;
+          }
+        }
+        return false;
+      } catch (err) {
+        console.warn("[user] bilibili password login failed:", err);
+        return false;
+      }
+    };
+
+    /** 获取 Bilibili 登录状态 */
+    const bilibiliFetchStatus = async (): Promise<boolean> => {
+      try {
+        const latest = await fetchBilibiliLoginStatus();
+        if (latest) {
+          bilibiliProfile.value = latest;
+          return true;
+        }
+        bilibiliProfile.value = null;
+        return false;
+      } catch {
+        return bilibiliProfile.value !== null;
+      }
+    };
+
+    /** Bilibili 登出 */
+    const bilibiliLogout = async (): Promise<void> => {
+      try {
+        await logoutBilibiliApi();
+      } catch {
+        console.error("[user] bilibili logout failed");
+      }
+      bilibiliProfile.value = null;
+      setBiliCookie("");
+    };
+
     return {
       profile,
       lastRefreshAt,
       isLoggedIn,
       fetchStatus,
       logout,
+
+      qqmusicProfile,
+      isQQMusicLoggedIn,
+      qqmusicLogin,
+      qqmusicFetchStatus,
+      qqmusicLogout,
+
+      spotifyProfile,
+      isSpotifyLoggedIn,
+      spotifyLogin,
+      spotifyFetchStatus,
+      spotifyLogout,
+
+      kugouProfile,
+      isKugouLoggedIn,
+      kugouLogin,
+      kugouFetchStatus,
+      kugouLogout,
+
+      bilibiliProfile,
+      isBilibiliLoggedIn,
+      bilibiliLogin,
+      bilibiliPasswordLogin,
+      bilibiliFetchStatus,
+      bilibiliLogout,
 
       playlists,
       likedSongIds,
@@ -587,7 +860,7 @@ export const useUserStore = defineStore(
   {
     persist: {
       storage: localStorage,
-      pick: ["profile", "lastRefreshAt", "level"],
+      pick: ["profile", "qqmusicProfile", "spotifyProfile", "kugouProfile", "bilibiliProfile", "lastRefreshAt", "level"],
     },
   },
 );

@@ -62,12 +62,19 @@ const visibleDevelopers = computed(() =>
 );
 const hasMoreDevelopers = computed(() => developers.value.length > 6);
 
+let cancelled = false;
+
 onMounted(async () => {
   try {
-    developers.value = await getContributors();
+    const list = await getContributors();
+    if (!cancelled) developers.value = list;
   } catch (error) {
     console.error("获取贡献者失败:", error);
   }
+});
+
+onBeforeUnmount(() => {
+  cancelled = true;
 });
 </script>
 

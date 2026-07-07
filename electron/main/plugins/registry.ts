@@ -126,7 +126,8 @@ const sanitizeSettingValue = (item: PluginSettingItem, value: unknown): unknown 
   switch (item.type) {
     case "switch":
       return Boolean(value);
-    case "number": {
+    case "number":
+    case "slider": {
       let num = Number(value);
       if (!Number.isFinite(num)) num = Number(item.default);
       if (item.min != null) num = Math.max(item.min, num);
@@ -138,6 +139,9 @@ const sanitizeSettingValue = (item: PluginSettingItem, value: unknown): unknown 
       return ok ? value : item.default;
     }
     case "text":
+    case "textarea":
+    case "color":
+    case "password":
     default:
       return String(value ?? "");
   }

@@ -55,6 +55,7 @@ export const useImmersiveMode = (isExpanded: Ref<boolean>) => {
       immersive.value = false;
       barHovered.value = false;
     }
+    return () => clearTimeout(idleTimer);
   });
 
   onBeforeUnmount(() => clearTimeout(idleTimer));

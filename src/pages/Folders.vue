@@ -35,7 +35,7 @@ const handleMore = (key: string): void => {
 };
 
 // 默认展开/选中只在首次拿到非空树时执行一次，之后用户的折叠/选择不再被覆盖
-let defaultsApplied = false;
+const defaultsApplied = ref(false);
 
 const findFolder = (nodes: FolderNode[], path: string): FolderNode | null => {
   for (const node of nodes) {
@@ -51,13 +51,13 @@ watch(
   ([current, init]) => {
     if (current.length === 0) {
       selectedFolder.value = null;
-      defaultsApplied = false;
+      defaultsApplied.value = false;
       return;
     }
-    if (!defaultsApplied && init) {
+    if (!defaultsApplied.value && init) {
       expanded.value = current.map((root) => root.path);
       selectedFolder.value = current[0];
-      defaultsApplied = true;
+      defaultsApplied.value = true;
       return;
     }
     /** 树结构变了，按 path 重新定位选中项 */

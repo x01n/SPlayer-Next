@@ -89,7 +89,7 @@ export const registerWindowIpc = (): void => {
 
   // 灵动岛查询当前吸附模式
   ipcMain.handle("dynamicIsland:getMode", () => {
-    const saved = store.get("windowStates.dynamicIsland");
+    const saved = store.get("windowStates.dynamicIsland") ?? {};
     return saved.mode === "floating" ? "floating" : "snapped";
   });
 

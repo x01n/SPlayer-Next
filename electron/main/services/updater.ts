@@ -90,7 +90,10 @@ const runCheck = (manual: boolean): void => {
   }
   checking = true;
   manualCheck = manual;
-  autoUpdater.checkForUpdates().catch(() => {});
+  autoUpdater.checkForUpdates().catch((error) => {
+    checking = false;
+    updaterLog.warn("检查更新失败:", error);
+  });
 };
 
 /**
@@ -124,6 +127,10 @@ export const openDownloadPage = (): void => {
 
 /** 初始化更新器 */
 export const initUpdater = (): void => {
+  if (intervalTimer) {
+    clearInterval(intervalTimer);
+    intervalTimer = null;
+  }
   autoUpdater.logger = updaterLog;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;

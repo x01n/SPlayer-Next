@@ -53,30 +53,34 @@ export const useUpdateStore = defineStore("update", () => {
     }
   };
 
-  // 订阅主进程推送的更新事件
-  const unsubscribe = window.api.update.onEvent(handleEvent);
-  onScopeDispose(unsubscribe);
-  // 触发启动检查
-  void window.api.update.check(false);
+  const electronApi = window.api;
+
+  if (electronApi) {
+    const unsubscribe = electronApi.update.onEvent(handleEvent);
+    onScopeDispose(unsubscribe);
+    void electronApi.update.check(false);
+  }
 
   /** 手动检查更新 */
   const checkManually = (): void => {
+    if (!electronApi) return;
     phase.value = "checking";
-    void window.api.update.check(true);
+    void electronApi.update.check(true);
   };
 
   /** 下载更新 */
   const download = (): void => {
+    if (!electronApi) return;
     phase.value = "downloading";
     percent.value = 0;
-    void window.api.update.download();
+    void electronApi.update.download();
   };
 
   /** 退出并安装 */
-  const install = (): void => void window.api.update.install();
+  const install = (): void => void electronApi?.update.install();
 
   /** 打开 Releases 下载页（mac） */
-  const openDownloadPage = (): void => void window.api.update.openDownloadPage();
+  const openDownloadPage = (): void => void electronApi?.update.openDownloadPage();
 
   /** 打开更新弹窗 */
   const openDialog = (): void => {

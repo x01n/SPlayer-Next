@@ -62,7 +62,7 @@ pub fn set_always_on_top_x11(window_id: i64, enable: bool) -> napi::Result<()> {
       false,
       screen.root,
       EventMask::SUBSTRUCTURE_NOTIFY | EventMask::SUBSTRUCTURE_REDIRECT,
-      &event,
+      event,
     )
     .map_err(|e| Error::from_reason(format!("SendEvent 失败: {}", e)))?;
 

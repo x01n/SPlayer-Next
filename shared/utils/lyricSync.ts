@@ -20,6 +20,8 @@ export const pickLatestStartedIndex = (lines: LyricLine[], time: number): number
       hi = mid - 1;
     }
   }
+  // 跳过背景行，往前找最近的主歌词行
+  while (result >= 0 && lines[result].isBG) result--;
   return result;
 };
 
@@ -30,8 +32,13 @@ export const pickLatestStartedIndex = (lines: LyricLine[], time: number): number
  */
 export const pickAdvanceOnEndIndex = (lines: LyricLine[], time: number): number => {
   const idx = pickLatestStartedIndex(lines, time);
-  if (idx >= 0 && idx + 1 < lines.length && lines[idx].endTime <= time) {
-    return idx + 1;
+  if (idx >= 0 && lines[idx].endTime <= time) {
+    // 找到下一个非背景行
+    let nextIdx = idx + 1;
+    while (nextIdx < lines.length && lines[nextIdx].isBG) nextIdx++;
+    if (nextIdx < lines.length && lines[nextIdx].startTime <= time) {
+      return nextIdx;
+    }
   }
   return idx;
 };
@@ -56,12 +63,18 @@ export const pickPrimaryIndex = (lines: LyricLine[], time: number): number => {
     }
   }
   if (latest < 0) return -1;
-  const latestActive = time < lines[latest].endTime;
-  if (!latestActive) return latest;
-  if (latest > 0) {
-    const prev = lines[latest - 1];
-    if (prev.startTime <= time && time < prev.endTime) return latest - 1;
-  }
+
+  // 跳过背景行，找到 startTime <= time 的最新非背景行
+  while (latest >= 0 && lines[latest].isBG) latest--;
+  if (latest < 0) return -1;
+
+  // latest 行仍活跃则直接返回，避免重叠时回跳到上一行
+  if (time < lines[latest].endTime) return latest;
+  // latest 已结束，返回自身（间隙或末行）
+  const next = lines[latest + 1];
+  if (!next || time < next.startTime) return latest;
+
+  // 时间已越过 latest 的 endTime 且 next 已开始（理论上不应发生，因为 latest 是 startTime <= time 的最大索引）
   return latest;
 };
 
@@ -106,7 +119,7 @@ export const clampLastLineEnd = (lines: LyricLine[], trackDurationMs?: number): 
   const clamped: LyricLine = {
     ...last,
     endTime: reasonable,
-    words: last.words.map((w, i, arr) =>
+    words: (last.words || []).map((w, i, arr) =>
       i === arr.length - 1 && w.endTime > reasonable ? { ...w, endTime: reasonable } : w,
     ),
   };

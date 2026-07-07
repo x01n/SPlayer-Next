@@ -23,7 +23,7 @@ const mainLines = computed(() => media.parsedLyric.filter((l) => !l.isBG));
 const currentLyricText = computed(() => {
   if (!isPlaying.value || media.lyricIndex < 0 || !mainLines.value.length) return null;
   const currentMs = media.parsedLyric[media.lyricIndex]?.startTime ?? 0;
-  const line = mainLines.value.findLast((l) => l.startTime <= currentMs) ?? mainLines.value[0];
+  const line = [...mainLines.value].reverse().find((l) => l.startTime <= currentMs) ?? mainLines.value[0];
   const text = line.words.map((w) => w.word).join("");
   return line.translatedLyric ? `${text}（${line.translatedLyric}）` : text;
 });

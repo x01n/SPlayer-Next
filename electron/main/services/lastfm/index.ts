@@ -14,7 +14,7 @@ let connecting = false;
 let cancelFlag = false;
 
 /** 读取实时配置 */
-const cfg = () => store.get("lastfm");
+const cfg = () => (store.get("lastfm") ?? {}) as { enabled: boolean; scrobble: boolean; nowPlaying: boolean; loveSync: boolean };
 
 /** 延时 */
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

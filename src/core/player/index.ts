@@ -17,12 +17,15 @@ import * as coverLoader from "@/services/coverLoader";
 import * as abLoop from "@/services/abLoop";
 import * as cacheScheduler from "@/services/cacheScheduler";
 import { resolveTrackSource } from "@/services/audioSource";
+import { startNetworkMonitoring } from "@/services/network";
 import { installPlayStats } from "./stats";
 import { useFavorite } from "@/composables/useFavorite";
 import { extractColorFromUrl } from "@/utils/color";
 import { handleError, isSkippableError } from "@/utils/errors";
 import { toast } from "@/composables/useToast";
 import i18n from "@/i18n";
+
+const electronApi = window.api;
 
 /** 引擎 load 竞态 token */
 let loadToken = 0;
@@ -52,7 +55,10 @@ const skipOnFailure = async (myToken: number, getCurrentToken: () => number): Pr
     return;
   }
   setTimeout(() => {
-    if (myToken === getCurrentToken()) nextTrack();
+    const status = useStatusStore();
+    // 如果用户已手动干预（切歌/播放），不再强制跳曲
+    if (status.state !== "idle" && status.state !== "loading") return;
+    if (myToken === getCurrentToken()) nextTrack().catch(() => {});
   }, SKIP_ON_ERROR_DELAY_MS);
 };
 
@@ -98,7 +104,7 @@ export const load = async (source: string, autoPlay = true, meta?: Track): Promi
     if (meta) void coverLoader.loadCoverForTrack(meta);
   }
   try {
-    const result = await window.api.player.load(source, { autoPlay, meta });
+    const result = await electronApi.player.load(source, { autoPlay, meta });
     // 竞态保护
     if (token !== loadToken) return { ok: false };
     if (result.success && result.data) {
@@ -143,11 +149,29 @@ export const loadTrack = async (track: Track | null): Promise<void> => {
   useMediaStore().setTrack(track);
   lyricLoader.beginLoad();
   resetForLoad(track.duration ?? 0);
-  void window.api.player.stop();
+  await electronApi.player.stop();
   // 解析 URL
   const resolved = await resolveTrackSource(track);
   // 期间有新点击，让位给最新的 loadTrack
   if (myToken !== trackToken) return;
+  // Bilibili fallback 注入 video 后同步到 mediaStore
+  if (resolved?.videoUrl) {
+    const media = useMediaStore();
+    if (media.track?.id === track.id) {
+      media.setTrack(
+        {
+          ...media.track,
+          video: {
+            url: resolved.videoUrl,
+            source: "bilibili",
+            bvid: resolved.videoBvid,
+            cid: resolved.videoCid,
+          },
+        },
+        media.detail,
+      );
+    }
+  }
   // 是否可跳曲
   let shouldSkip = false;
   // URL 解析失败
@@ -155,7 +179,6 @@ export const loadTrack = async (track: Track | null): Promise<void> => {
     const status = useStatusStore();
     status.currentSource = null;
     status.state = "idle";
-    void window.api.player.stop();
     useMediaStore().setLyric(null, null);
     shouldSkip = true;
   } else {
@@ -258,7 +281,7 @@ export const play = async (): Promise<void> => {
   const prev = status.state;
   status.state = "playing";
   playback.setPlaying(true);
-  const result = await window.api.player.play();
+  const result = await electronApi.player.play();
   if (!result.success) {
     status.state = prev;
     playback.setPlaying(false);
@@ -282,7 +305,7 @@ export const pause = async (): Promise<void> => {
   const prev = status.state;
   status.state = "paused";
   playback.setPlaying(false);
-  const result = await window.api.player.pause();
+  const result = await electronApi.player.pause();
   if (!result.success) {
     status.state = prev;
     playback.setPlaying(true);
@@ -291,12 +314,13 @@ export const pause = async (): Promise<void> => {
 
 /** 停止播放并重置进度 */
 export const stop = async (): Promise<void> => {
-  const result = await window.api.player.stop();
+  const result = await electronApi.player.stop();
   if (result.success) {
     const status = useStatusStore();
     status.state = "stopped";
     status.position = 0;
     playback.reset();
+    consecutiveFailures = 0;
   }
 };
 
@@ -305,6 +329,10 @@ export const stop = async (): Promise<void> => {
  * 后端推送的 position 必须接近此值才会被接受
  */
 let seekTarget: number | null = null;
+/** seek 超时清理定时器 */
+let seekTimer: ReturnType<typeof setTimeout> | null = null;
+/** seek 竞态 token */
+let seekToken = 0;
 
 /**
  * 判断后端推送的 position 是否已到达 seek 目标附近
@@ -331,21 +359,40 @@ export const isSeeking = (): boolean => seekTarget !== null;
  */
 export const seek = async (posMs: number): Promise<void> => {
   const status = useStatusStore();
-  // 歌曲加载中 seek 无意义：引擎此刻没有可 seek 的解码线程，
-  // 且 seekTarget 残留会让加载完成后的 position 推送被持续丢弃
   if (status.trackLoading) return;
-  // 先冻结插值，再写入位置
   playback.setSeeking(true);
   status.position = posMs;
   playback.setCurrentTime(posMs);
 
   // 设置 seek 目标，屏蔽旧 position 推送
+  const myToken = ++seekToken;
   seekTarget = posMs;
+  const mySeekTarget = posMs;
 
-  const result = await window.api.player.seek(posMs);
+  // 清理上一次的定时器，防止多次 seek 时竞态
+  if (seekTimer) {
+    clearTimeout(seekTimer);
+    seekTimer = null;
+  }
+
+  const result = await electronApi.player.seek(posMs);
   if (result.success) {
     status.position = posMs;
     playback.setCurrentTime(posMs);
+    // 5 秒内如果没有收到匹配的 position 事件，自动清理 seekTarget，防止永久残留
+    seekTimer = setTimeout(() => {
+      if (seekTarget === mySeekTarget) {
+        seekTarget = null;
+        playback.setSeeking(false);
+      }
+      seekTimer = null;
+    }, 5000);
+  } else {
+    // seek 失败时只清理属于本次 seek 的目标，避免覆盖后续新 seek
+    if (seekToken === myToken) {
+      seekTarget = null;
+      playback.setSeeking(false);
+    }
   }
 };
 
@@ -367,7 +414,7 @@ export const markSeek = (posMs: number): void => {
  * @param vol - 音量值（0.0 ~ 1.0）
  */
 export const setVolume = async (vol: number): Promise<void> => {
-  const result = await window.api.player.setVolume(vol);
+  const result = await electronApi.player.setVolume(vol);
   if (result.success) {
     useStatusStore().volume = vol;
   }
@@ -379,7 +426,7 @@ export const setVolume = async (vol: number): Promise<void> => {
  */
 export const setSpeed = async (v: number): Promise<void> => {
   const safe = Number.isFinite(v) ? Math.max(0.5, Math.min(2.0, v)) : 1.0;
-  const result = await window.api.player.setSpeed(safe);
+  const result = await electronApi.player.setSpeed(safe);
   if (result.success) {
     useStatusStore().speed = safe;
     // 同步给 playback 时间源，让墙钟插值正确换算到源时间
@@ -392,7 +439,7 @@ export const setSpeed = async (v: number): Promise<void> => {
  */
 export const setPitch = async (n: number): Promise<void> => {
   const safe = Number.isFinite(n) ? Math.max(-12, Math.min(12, Math.round(n))) : 0;
-  const result = await window.api.player.setPitch(safe);
+  const result = await electronApi.player.setPitch(safe);
   if (result.success) useStatusStore().pitch = safe;
 };
 
@@ -401,13 +448,13 @@ export const setPitch = async (n: number): Promise<void> => {
  * @param on - true = 变速保音调，false = 变速变调
  */
 export const setPitchSync = async (on: boolean): Promise<void> => {
-  const result = await window.api.player.setPitchSync(on);
+  const result = await electronApi.player.setPitchSync(on);
   if (result.success) useStatusStore().pitchSync = on;
 };
 
 /** 刷新音频输出设备列表 */
 export const refreshDevices = async (): Promise<void> => {
-  const result = await window.api.player.getOutputDevices();
+  const result = await electronApi.player.getOutputDevices();
   if (result.success && result.data) useStatusStore().outputDevices = result.data;
 };
 
@@ -416,7 +463,7 @@ export const refreshDevices = async (): Promise<void> => {
  * @param deviceName - 设备名称，传 null 跟随系统默认
  */
 export const switchDevice = async (deviceName: string | null): Promise<void> => {
-  const result = await window.api.player.setOutputDevice(deviceName);
+  const result = await electronApi.player.setOutputDevice(deviceName);
   if (!result.success) return;
   const settings = useSettingsStore();
   settings.player.outputDevice = deviceName;
@@ -445,7 +492,7 @@ export const playFrom = async (items: readonly Track[], startIndex = 0): Promise
     status.playIndex = 0;
   }
   if (isSameTrack) {
-    if (!status.isPlaying) play();
+    if (!status.isPlaying) await play();
   } else {
     await loadTrack(status.currentTrack);
   }
@@ -487,7 +534,7 @@ export const saveTrackTags = async (edits: TagEditRequest[]): Promise<TagWriteOu
     resumeMs = Math.round(playback.getCurrentTime());
     wasPlaying = status.isPlaying;
     // Windows 下引擎持有文件句柄，必须先停止才能写入
-    await window.api.player.stop();
+    await electronApi.player.stop();
   }
 
   const result = await window.api.library.writeTags(edits);
@@ -600,7 +647,7 @@ export const playAtIndex = async (index: number): Promise<void> => {
   const status = useStatusStore();
   if (index < 0 || index >= queue.queueLength.value) return;
   if (index === status.playIndex) {
-    if (!status.isPlaying && useMediaStore().track) play();
+    if (!status.isPlaying && useMediaStore().track) await play();
     return;
   }
   // 退出 FM
@@ -623,7 +670,7 @@ const onQueueEnded = async (): Promise<void> => {
   playback.setPlaying(false);
   playback.reset();
   // 通知主进程停止音频引擎
-  await window.api.player.stop();
+  await electronApi.player.stop();
   const status = useStatusStore();
   status.state = "stopped";
   status.position = status.duration;
@@ -632,7 +679,7 @@ const onQueueEnded = async (): Promise<void> => {
 /** 同步播放模式到主进程 */
 const syncPlayMode = (): void => {
   const status = useStatusStore();
-  window.api.player.syncPlayMode(status.repeatMode, status.shuffleMode);
+  electronApi.player.syncPlayMode(status.repeatMode, status.shuffleMode);
 };
 
 /**
@@ -787,7 +834,7 @@ export const playNow = async (item: Track): Promise<void> => {
   const media = useMediaStore();
   // 同一首歌且已成功加载
   if (media.track?.id === item.id && status.currentSource) {
-    if (!status.isPlaying) play();
+    if (!status.isPlaying) await play();
     return;
   }
   // 退出 FM
@@ -815,6 +862,10 @@ export const moveInQueue = (fromIndex: number, toIndex: number): void => {
 };
 
 let unsubscribe: (() => void) | null = null;
+let favWatchStop: (() => void) | null = null;
+let lyricOffsetUnsubscribe: (() => void) | null = null;
+let networkMonitorCleanup: (() => void) | null = null;
+let uninstallPlayStats: (() => void) | null = null;
 let initialized = false;
 
 /** 初始化播放器 */
@@ -831,46 +882,56 @@ export const initPlayer = async (): Promise<void> => {
   void usePluginsStore().load();
   await queue.restoreQueue();
   const status = useStatusStore();
+  const electronApi = window.api;
+  if (!electronApi) {
+    status.state = "idle";
+    return;
+  }
   // 恢复上次的音量和播放模式到主进程
-  await window.api.player.setVolume(status.volume);
+  await electronApi.player.setVolume(status.volume);
   syncPlayMode();
   // 应用渐入渐出配置
   const { fadeEnabled, fadeDuration, loudnessNormalization, equalizer } = settings.system.player;
-  await window.api.player.setFadeDuration(fadeEnabled ? fadeDuration : 0);
+  await electronApi.player.setFadeDuration(fadeEnabled ? fadeDuration : 0);
   // 应用音量均衡配置
-  await window.api.player.setNormalizationEnabled(loudnessNormalization ?? false);
+  await electronApi.player.setNormalizationEnabled(loudnessNormalization ?? false);
   // 应用均衡器配置
   if (equalizer) {
-    await window.api.player.setEqualizerBands([...equalizer.bands]);
-    await window.api.player.setPreampGain(equalizer.preamp);
-    await window.api.player.setEqualizerEnabled(equalizer.enabled);
+    await electronApi.player.setEqualizerBands([...equalizer.bands]);
+    await electronApi.player.setPreampGain(equalizer.preamp);
+    await electronApi.player.setEqualizerEnabled(equalizer.enabled);
   }
   // 刷新设备列表并恢复上次选择的输出设备
   await refreshDevices();
   if (settings.player.outputDevice) {
-    await window.api.player.setOutputDevice(settings.player.outputDevice);
+    await electronApi.player.setOutputDevice(settings.player.outputDevice);
   }
-  // 先订阅事件，确保 load 触发播放后 position 事件能被接收
+  // 恢复播放速度和音调偏移到主进程引擎
+  await electronApi.player.setSpeed(status.speed);
+  await electronApi.player.setPitch(status.pitch);
+  // 启动网络监控
+  if (networkMonitorCleanup) networkMonitorCleanup();
+  networkMonitorCleanup = startNetworkMonitoring();
   if (unsubscribe) unsubscribe();
-  unsubscribe = window.api.player.onEvent(handleEvent);
+  unsubscribe = electronApi.player.onEvent(handleEvent);
   // 安装播放统计累加器
-  installPlayStats();
+  uninstallPlayStats = installPlayStats();
   // 订阅主进程下发的歌词偏移变化
   const media = useMediaStore();
   // 当前歌曲喜欢状态变化时同步到托盘菜单
   const fav = useFavorite();
-  watch(
+  favWatchStop = watch(
     () => fav.isLiked(media.track),
-    (liked) => window.api.player.syncLikeState(liked),
+    (liked) => electronApi.player.syncLikeState(liked),
     { immediate: true },
   );
-  window.api.nowPlaying.onLyricOffsetChange(({ offsetMs }) => {
+  lyricOffsetUnsubscribe = electronApi.nowPlaying.onLyricOffsetChange(({ offsetMs }) => {
     status.lyricOffsetMs = offsetMs;
     media.updateLyricIndex(playback.getCurrentTime() + offsetMs);
   });
   // 获取歌曲偏移
   try {
-    const snap = await window.api.nowPlaying.requestSnapshot();
+    const snap = await electronApi.nowPlaying.requestSnapshot();
     status.lyricOffsetMs = snap.lyricOffsetMs;
   } catch (error) {
     console.error("[player] requestSnapshot failed", error);
@@ -881,6 +942,22 @@ export const initPlayer = async (): Promise<void> => {
     useMediaStore().setTrack(lastTrack);
     const resolved = await resolveTrackSource(lastTrack);
     if (resolved) {
+      // Bilibili fallback 注入 video 后同步到 mediaStore
+      const media = useMediaStore();
+      if (resolved.videoUrl && media.track?.id === lastTrack.id) {
+        media.setTrack(
+          {
+            ...media.track,
+            video: {
+              url: resolved.videoUrl,
+              source: "bilibili",
+              bvid: resolved.videoBvid,
+              cid: resolved.videoCid,
+            },
+          },
+          media.detail,
+        );
+      }
       lyricLoader.beginLoad();
       const result = await load(resolved.source, settings.system.player.autoPlay, lastTrack);
       if (result.ok && settings.system.player.rememberLastTrack && lastPosition > 0) {
@@ -902,5 +979,21 @@ export const disposePlayer = (): void => {
   if (unsubscribe) {
     unsubscribe();
     unsubscribe = null;
+  }
+  if (favWatchStop) {
+    favWatchStop();
+    favWatchStop = null;
+  }
+  if (lyricOffsetUnsubscribe) {
+    lyricOffsetUnsubscribe();
+    lyricOffsetUnsubscribe = null;
+  }
+  if (networkMonitorCleanup) {
+    networkMonitorCleanup();
+    networkMonitorCleanup = null;
+  }
+  if (uninstallPlayStats) {
+    uninstallPlayStats();
+    uninstallPlayStats = null;
   }
 };

@@ -10,6 +10,7 @@ import * as netease from "./netease";
 import * as qqmusic from "./qqmusic";
 import * as kugou from "./kugou";
 import * as spotify from "./spotify";
+import * as bilibili from "./bilibili";
 
 /** 搜索结果通用 */
 export interface SearchResult<T> {
@@ -33,6 +34,7 @@ export const searchSongs = (
   if (platform === "qqmusic") return qqmusic.songs(keyword, offset, limit);
   if (platform === "kugou") return kugou.songs(keyword, offset, limit);
   if (platform === "spotify") return spotify.songs(keyword, offset, limit);
+  if (platform === "bilibili") return bilibili.songs(keyword, offset, limit);
   return unsupported(platform, "songs");
 };
 

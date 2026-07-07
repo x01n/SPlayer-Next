@@ -49,7 +49,8 @@ const sanitizeForIpc = (value: unknown, depth = 0): unknown => {
   if (depth > 6) return null;
   if (value == null) return value;
   const t = typeof value;
-  if (t === "string" || t === "number" || t === "boolean" || t === "bigint") return value;
+  if (t === "string" || t === "number" || t === "boolean") return value;
+  if (t === "bigint") return (value as bigint).toString();
   if (t === "function" || t === "symbol") return undefined;
   if (Buffer.isBuffer(value)) return new Uint8Array(value);
   if (value instanceof Uint8Array || value instanceof ArrayBuffer) return value;
@@ -516,7 +517,7 @@ const loadPluginIntoContext = (spec: LoadSpec): void => {
 
   const context = vm.createContext(sandboxGlobal, {
     name: `plugin:${spec.pluginId}`,
-    codeGeneration: { strings: true, wasm: false },
+    codeGeneration: { strings: false, wasm: false },
   });
 
   try {
@@ -567,7 +568,7 @@ parentPort.on("message", async (event) => {
       }
       case "event": {
         const record = plugins.get(msg.pluginId);
-        if (!record) return;
+        if (!record || record.disposed) return;
         const handlers = record.playerEventHandlers.get(msg.event);
         if (handlers) {
           for (const handler of handlers) {
@@ -582,7 +583,7 @@ parentPort.on("message", async (event) => {
       }
       case "panelMessage": {
         const record = plugins.get(msg.pluginId);
-        if (!record) return;
+        if (!record || record.disposed) return;
         const handlers = record.panelMessageHandlers.get(msg.panelId);
         if (handlers) {
           for (const handler of handlers) {
@@ -597,7 +598,7 @@ parentPort.on("message", async (event) => {
       }
       case "settingsUpdate": {
         const record = plugins.get(msg.pluginId);
-        if (!record) return;
+        if (!record || record.disposed) return;
         for (const [key, value] of Object.entries(msg.settings)) {
           record.userSettingsCache[key] = value;
           const handlers = record.settingChangeHandlers.get(key);
@@ -615,14 +616,16 @@ parentPort.on("message", async (event) => {
       }
       case "hostResult": {
         const record = plugins.get(msg.pluginId);
-        const waiter = record?.hostCallWaiters.get(msg.callId);
-        if (!record || !waiter) return;
+        if (!record || record.disposed) return;
+        const waiter = record.hostCallWaiters.get(msg.callId);
+        if (!waiter) return;
         record.hostCallWaiters.delete(msg.callId);
         if (msg.ok) waiter.resolve(msg.data);
         else {
-          const err = new Error(msg.error?.message ?? "host call failed");
-
-          (err as any).code = msg.error?.code;
+          const err = Object.assign(
+            new Error(msg.error?.message ?? "host call failed"),
+            { code: msg.error?.code },
+          );
           waiter.reject(err);
         }
         return;
@@ -658,23 +661,15 @@ parentPort.on("message", async (event) => {
         try {
           const data = await handler(msg.params);
           record.inflight.delete(msg.requestId);
-          if (ctrl.signal.aborted) {
-            send({
-              kind: "result",
-              pluginId: msg.pluginId,
-              requestId: msg.requestId,
-              ok: false,
-              error: { code: "PLUGIN_CANCELLED", message: "cancelled" },
-            });
-          } else {
-            send({
-              kind: "result",
-              pluginId: msg.pluginId,
-              requestId: msg.requestId,
-              ok: true,
-              data: sanitizeForIpc(data),
-            });
-          }
+          // 若 handler 已执行完毕，无论是否收到 cancel，均回传实际结果；
+          // cancel 仅作协作式提示，handler 自行检查 signal.aborted 并抛异常才能中断
+          send({
+            kind: "result",
+            pluginId: msg.pluginId,
+            requestId: msg.requestId,
+            ok: true,
+            data: sanitizeForIpc(data),
+          });
         } catch (err) {
           record.inflight.delete(msg.requestId);
           send({
@@ -683,7 +678,7 @@ parentPort.on("message", async (event) => {
             requestId: msg.requestId,
             ok: false,
             error: {
-              code: ((err as any)?.code as string) ?? "PLUGIN_HANDLER_ERROR",
+              code: (err instanceof Error ? (err as Error & { code?: string }).code : undefined) ?? "PLUGIN_HANDLER_ERROR",
               message: err instanceof Error ? err.message : String(err),
             },
           });
@@ -712,16 +707,18 @@ parentPort.on("message", async (event) => {
   }
 });
 
-// 插件未捕获的异步异常：记 host 级日志但不退进程，保护其它插件存活
+// host 进程级未捕获异常：终止进程，防止继续接收和派发消息
 process.on("unhandledRejection", (reason) => {
   send({
     kind: "log",
     level: "error",
     args: ["unhandledRejection:", reason instanceof Error ? reason.message : reason],
   });
+  process.exit(1);
 });
 process.on("uncaughtException", (err) => {
   send({ kind: "log", level: "error", args: ["uncaughtException:", err.message] });
+  process.exit(1);
 });
 
 // host 进程就绪

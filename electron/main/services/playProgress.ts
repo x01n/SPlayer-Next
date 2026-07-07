@@ -69,7 +69,7 @@ export const createPlayProgress = <T>(options: PlayProgressOptions<T>): PlayProg
   };
 
   return {
-    load: (nextDurationSec, nextPayload, playing) => {
+    load: (nextDurationSec, nextPayload, playing) => { try { settle(); } catch { }
       settle();
       clear();
       payload = nextPayload;

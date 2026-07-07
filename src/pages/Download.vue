@@ -55,7 +55,9 @@ const emptyText = computed(() =>
   tab.value === "done" ? t("download.emptyDone") : t("download.empty"),
 );
 
-onMounted(() => void downloadStore.init());
+onMounted(() => {
+  downloadStore.init().catch(() => {});
+});
 </script>
 
 <template>

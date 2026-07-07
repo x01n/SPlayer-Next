@@ -5,6 +5,7 @@
 
 import type { Track } from "./player";
 import type { PluginQuality } from "./plugin";
+import type { ErrorCode } from "./errors";
 
 /** 下载歌词文件保存格式：逐行 LRC / 逐字增强 LRC */
 export type DownloadLyricFormat = "lrc" | "enhanced-lrc";
@@ -69,7 +70,7 @@ export interface DownloadTask {
   /** 完成后最终文件路径 */
   filePath?: string;
   /** 失败原因码 */
-  errorCode?: string;
+  errorCode?: ErrorCode;
   /** 写标签失败但音频已落盘 */
   tagWarning?: boolean;
   createdAt: number;

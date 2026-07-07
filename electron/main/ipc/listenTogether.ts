@@ -26,8 +26,37 @@ import * as nowPlaying from "@main/services/nowPlaying";
 import type { Track } from "@shared/types/player";
 import type { ListenTogetherRoom } from "@shared/types/listenTogether";
 
-/** 当前活跃的本地房间（作为房主） */
-let localRoom: (ListenTogetherRoom & { roomKey: string; hostToken: string }) | null = null;
+interface LocalRoomRef {
+  id: string;
+  roomKey: string;
+  hostToken: string;
+  hostId: string;
+}
+
+/** 当前活跃的本地房间身份；房间状态始终从 rooms 读取 */
+let localRoom: LocalRoomRef | null = null;
+
+const toRoomPayload = (room: ListenTogetherRoom): ListenTogetherRoom => ({
+  id: room.id,
+  name: room.name,
+  hostId: room.hostId,
+  members: room.members,
+  blacklist: room.blacklist,
+  state: room.state,
+  currentTrack: room.currentTrack,
+  position: room.position,
+  createdAt: room.createdAt,
+  controllerId: room.controllerId,
+  cryptoKey: room.cryptoKey,
+  queue: room.queue,
+});
+
+const getActiveRoom = (): ListenTogetherRoom | null => {
+  if (!localRoom) return null;
+  const room = getRoom(localRoom.id);
+  if (!room) localRoom = null;
+  return room ?? null;
+};
 
 /** 播放状态监听卸载函数 */
 let unsubTrackChange: (() => void) | null = null;
@@ -108,29 +137,29 @@ export const registerListenTogetherIpc = (): void => {
         }
 
         const result = createRoom(nickname, neteaseUserId, roomName);
-        localRoom = result;
-        serverLog.info(
-          `[ListenTogether] 房间创建成功, roomId=${localRoom.id}, name=${localRoom.name}`,
-        );
+        localRoom = {
+          id: result.id,
+          roomKey: result.roomKey,
+          hostToken: result.hostToken,
+          hostId: result.hostId,
+        };
+        serverLog.info(`[ListenTogether] 房间创建成功, roomId=${result.id}, name=${result.name}`);
 
         // 监听播放状态变化，同步到房间并广播
         unsubTrackChange = nowPlaying.onTrackChange(({ track }) => {
           serverLog.info(`[ListenTogether] 检测到播放曲目变化, track=${track?.title ?? "null"}`);
           if (!localRoom) return;
-          // 切歌过程中间可能出现 track=null 的过渡状态，此时只更新本地状态不广播，避免客户端收到 trackId=null
           if (!track) {
-            localRoom.currentTrack = null;
             serverLog.info("[ListenTogether] 播放曲目变化为 null，跳过同步广播");
             return;
           }
-          // 更新 localRoom 副本的 currentTrack，避免 onPositionSync 使用旧值
-          localRoom.currentTrack = track as Track;
-          const syncState = getRoomSyncState(localRoom.id);
+          const room = getActiveRoom();
+          if (!room) return;
+          const syncState = getRoomSyncState(room.id);
           if (syncState) {
-            // 切歌时重置位置为 0，避免广播旧歌的残余位置
-            setRoomPlayback(localRoom.id, track as Track, 0, syncState.isPlaying, localRoom.hostId);
+            setRoomPlayback(room.id, track as Track, 0, syncState.isPlaying, localRoom.hostId);
             lastPlayingState = syncState.isPlaying;
-            broadcastSync(localRoom.id);
+            broadcastSync(room.id);
           }
         });
 
@@ -139,42 +168,37 @@ export const registerListenTogetherIpc = (): void => {
             `[ListenTogether] 检测到播放位置同步, position=${data.position}, playing=${data.playing}`,
           );
           if (!localRoom) return;
-          // 使用 rooms 中的最新 currentTrack，避免 localRoom 副本未同步
-          const room = getRoom(localRoom.id);
-          const currentTrack = room?.currentTrack ?? localRoom.currentTrack;
-          setRoomPlayback(
-            localRoom.id,
-            currentTrack,
-            data.position,
-            data.playing,
-            localRoom.hostId,
-          );
-          // 只在播放/暂停状态发生变化时立即广播，避免 position 推送（约200ms）造成消息洪泛
+          const room = getActiveRoom();
+          if (!room) return;
+          setRoomPlayback(room.id, room.currentTrack, data.position, data.playing, localRoom.hostId);
           if (data.playing !== lastPlayingState) {
             lastPlayingState = data.playing;
             serverLog.info(`[ListenTogether] 播放状态变化，立即广播: isPlaying=${data.playing}`);
-            broadcastSync(localRoom.id);
+            broadcastSync(room.id);
           }
         });
 
         // 房主加入 WS 时 handleJoin 会启动带快照检测的同步定时器，此处不再重复启动
 
-        serverLog.info(`[ListenTogether] IPC 创建一起听房间成功: ${localRoom.id}`);
+        const room = getActiveRoom();
+        if (!room) {
+          throw new Error("房间创建后未找到房间状态");
+        }
+
+        serverLog.info(`[ListenTogether] IPC 创建一起听房间成功: ${room.id}`);
 
         return {
           ok: true,
-          room: {
-            id: localRoom.id,
-            name: localRoom.name,
-            hostId: localRoom.hostId,
-            members: localRoom.members,
-            state: localRoom.state,
-            createdAt: localRoom.createdAt,
-          },
+          room: toRoomPayload(room),
           roomKey: localRoom.roomKey,
           hostToken: localRoom.hostToken,
         };
       } catch (err) {
+        unsubTrackChange?.();
+        unsubPositionSync?.();
+        unsubTrackChange = null;
+        unsubPositionSync = null;
+        localRoom = null;
         serverLog.info(
           `[ListenTogether] 创建房间异常: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -204,16 +228,9 @@ export const registerListenTogetherIpc = (): void => {
   // 获取当前房间信息
   ipcMain.handle("listenTogether:getRoom", () => {
     serverLog.info(`[ListenTogether] IPC 获取房间信息, localRoom=${localRoom?.id ?? "null"}`);
-    if (!localRoom) return null;
-    return {
-      id: localRoom.id,
-      name: localRoom.name,
-      hostId: localRoom.hostId,
-      members: localRoom.members,
-      state: localRoom.state,
-      currentTrack: localRoom.currentTrack,
-      createdAt: localRoom.createdAt,
-    };
+    const room = getActiveRoom();
+    if (!room) return null;
+    return toRoomPayload(room);
   });
 
   // 获取房间密钥
@@ -226,17 +243,20 @@ export const registerListenTogetherIpc = (): void => {
   // 获取分享链接（base62压缩格式）
   ipcMain.handle("listenTogether:getShareLink", (_e, roomId: string) => {
     serverLog.info(`[ListenTogether] IPC 获取分享链接, roomId=${roomId}`);
-    const room = getRoom(roomId);
-    if (!room) {
+    if (!localRoom || localRoom.id !== roomId) {
+      serverLog.info(`[ListenTogether] 获取分享链接失败: 不是当前房间的房主, roomId=${roomId}`);
+      return null;
+    }
+    const room = getActiveRoom();
+    if (!room || room.id !== roomId) {
       serverLog.info(`[ListenTogether] 获取分享链接失败: 房间不存在, roomId=${roomId}`);
       return null;
     }
-    const key = localRoom?.roomKey ?? "";
+    const key = localRoom.roomKey;
     const port = store.get("externalApi.port") || 14558;
     const allowLan = store.get("externalApi.allowLan") || false;
     const host = allowLan ? (getLanAddress() ?? "127.0.0.1") : "127.0.0.1";
 
-    // 使用 base62 编码邀请码
     const inviteCode = encodeInviteCode(roomId, key);
     const link = `splayer-listentogether://${host}:${port}/i/${inviteCode}`;
     serverLog.info(`[ListenTogether] 分享链接生成成功: ${link}`);
@@ -246,12 +266,16 @@ export const registerListenTogetherIpc = (): void => {
   // 获取原始分享链接（兼容旧格式）
   ipcMain.handle("listenTogether:getRawShareLink", (_e, roomId: string) => {
     serverLog.info(`[ListenTogether] IPC 获取原始分享链接, roomId=${roomId}`);
-    const room = getRoom(roomId);
-    if (!room) {
+    if (!localRoom || localRoom.id !== roomId) {
+      serverLog.info(`[ListenTogether] 获取原始分享链接失败: 不是当前房间的房主, roomId=${roomId}`);
+      return null;
+    }
+    const room = getActiveRoom();
+    if (!room || room.id !== roomId) {
       serverLog.info(`[ListenTogether] 获取原始分享链接失败: 房间不存在, roomId=${roomId}`);
       return null;
     }
-    const key = localRoom?.roomKey ?? "";
+    const key = localRoom.roomKey;
     const port = store.get("externalApi.port") || 14558;
     const allowLan = store.get("externalApi.allowLan") || false;
     const host = allowLan ? (getLanAddress() ?? "127.0.0.1") : "127.0.0.1";
@@ -275,7 +299,8 @@ export const registerListenTogetherIpc = (): void => {
   // 踢出成员
   ipcMain.handle("listenTogether:kickMember", (_e, roomId: string, memberId: string) => {
     serverLog.info(`[ListenTogether] IPC 踢出成员, roomId=${roomId}, memberId=${memberId}`);
-    if (!localRoom || localRoom.id !== roomId) {
+    const room = getActiveRoom();
+    if (!localRoom || !room || room.id !== roomId) {
       serverLog.info(`[ListenTogether] 踢出成员失败: 无权操作此房间, roomId=${roomId}`);
       return { ok: false, error: "无权操作此房间" };
     }
@@ -289,7 +314,8 @@ export const registerListenTogetherIpc = (): void => {
   // 拉黑成员
   ipcMain.handle("listenTogether:blacklistMember", (_e, roomId: string, memberId: string) => {
     serverLog.info(`[ListenTogether] IPC 拉黑成员, roomId=${roomId}, memberId=${memberId}`);
-    if (!localRoom || localRoom.id !== roomId) {
+    const room = getActiveRoom();
+    if (!localRoom || !room || room.id !== roomId) {
       serverLog.info(`[ListenTogether] 拉黑成员失败: 无权操作此房间, roomId=${roomId}`);
       return { ok: false, error: "无权操作此房间" };
     }
@@ -319,17 +345,13 @@ export const registerListenTogetherIpc = (): void => {
 };
 
 /** 获取本地房间 */
-export const getLocalRoom = ():
-  | (ListenTogetherRoom & { roomKey: string; hostToken: string })
-  | null => {
+export const getLocalRoom = (): LocalRoomRef | null => {
   serverLog.info(`[ListenTogether] 获取本地房间, localRoom=${localRoom?.id ?? "null"}`);
   return localRoom;
 };
 
 /** 设置本地房间 */
-export const setLocalRoom = (
-  room: (ListenTogetherRoom & { roomKey: string; hostToken: string }) | null,
-): void => {
+export const setLocalRoom = (room: LocalRoomRef | null): void => {
   serverLog.info(`[ListenTogether] 设置本地房间, roomId=${room?.id ?? "null"}`);
   localRoom = room;
 };

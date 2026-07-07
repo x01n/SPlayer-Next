@@ -16,21 +16,29 @@ import { toMs } from "@main/utils/time";
  * @param positionMs - 目标位置（毫秒）
  */
 const seek = (positionMs: number): Promise<void> => {
+  const result = getPlayer().seek(positionMs / 1000);
   sendToMain("player:event", { type: "seek", data: { position: positionMs } });
-  return getPlayer().seek(positionMs / 1000);
+  return result;
 };
 
 export const playerControl = {
-  play: (): void =>
-    void getPlayer()
-      .play()
-      .catch(() => {}),
-  pause: (): void => getPlayer().pause(),
-  stop: (): void => getPlayer().stop(),
+  play: (): void => {
+    try { void getPlayer()?.play?.().catch(() => {}); } catch { /* noop */ }
+  },
+  pause: (): void => {
+    try { getPlayer()?.pause(); } catch { /* noop */ }
+  },
+  stop: (): void => {
+    try { getPlayer()?.stop(); } catch { /* noop */ }
+  },
   next: (): void => sendToMain("player:event", { type: "next" }),
   prev: (): void => sendToMain("player:event", { type: "prev" }),
   seek,
-  setVolume: (volume: number): void => getPlayer().setVolume(volume),
+  setVolume: (volume: number): void => {
+    try { getPlayer()?.setVolume(volume); } catch { /* noop */ }
+  },
   /** 当前播放进度（毫秒） */
-  getPosition: (): number => toMs(getPlayer().getPosition()),
+  getPosition: (): number => {
+    try { return toMs(getPlayer()?.getPosition() ?? 0); } catch { return 0; }
+  },
 };

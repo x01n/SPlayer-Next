@@ -10,6 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { clearQQMusicSession } from "./core/request";
 import { modules } from "./modules";
 import type { QMParams } from "./core/types";
 
@@ -52,6 +53,7 @@ const cacheSet = (key: string, value: unknown, ttl = DEFAULT_TTL): void => {
 
 export const clearQQMusicCache = (): void => {
   cache.clear();
+  clearQQMusicSession();
 };
 
 /**

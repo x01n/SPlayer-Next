@@ -111,6 +111,8 @@ export const useDataStore = defineStore(
             return dailyRecommend.value;
           }
           const tracks = await fetchDailySongs();
+          // 用户切换后丢弃过期结果，避免串数据
+          if (dailyArchiveUserId !== uid) return dailyRecommend.value;
           if (tracks.length > 0) {
             // 当天已在归档则覆盖，否则前插为新的一天
             const rest =

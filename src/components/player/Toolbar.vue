@@ -32,7 +32,7 @@ const lyricButtonType = computed(() =>
 const volumePercent = computed(() => Math.round(status.volume * 100));
 
 /** 静音前的音量，用于解除静音时恢复 */
-const lastVolume = ref(status.volume || 0.7);
+const lastVolume = ref(status.volume ?? 0.7);
 
 const onVolumeWheel = (e: WheelEvent): void => {
   const delta = e.deltaY < 0 ? 0.05 : -0.05;

@@ -55,7 +55,7 @@ export const parseLyS = (text: string): LyricLine[] => {
     const propMatch = PROP_RE.exec(trimmed);
     if (!propMatch) continue;
 
-    const { isBG, isDuet } = parseProperty(parseInt(propMatch[1]));
+    const { isBG, isDuet } = parseProperty(parseInt(propMatch[1], 10));
     const rest = trimmed.slice(propMatch[0].length);
 
     // 解析逐字时间戳

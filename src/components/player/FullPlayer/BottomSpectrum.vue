@@ -70,7 +70,7 @@ const draw = (): void => {
 
   // 检测新帧推送
   const data = getFftFrame();
-  if (data !== lastRef) {
+  if (data && data !== lastRef) {
     lastRef = data;
     prev.set(curr);
     for (let i = 0; i < FFT_SIZE; i++) curr[i] = data[i] ?? 0;

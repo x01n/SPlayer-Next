@@ -28,11 +28,11 @@ const ASS_TAG_RE = /\{[^}]*\}/g;
 const parseAssTime = (value: string): number => {
   const parts = value.split(":");
   if (parts.length < 3) return 0;
-  const hr = parseInt(parts[0]);
-  const min = parseInt(parts[1]);
+  const hr = parseInt(parts[0], 10);
+  const min = parseInt(parts[1], 10);
   const secParts = parts[2].split(".");
-  const sec = parseInt(secParts[0]);
-  const cs = parseInt(secParts[1] ?? "0");
+  const sec = parseInt(secParts[0], 10);
+  const cs = parseInt(secParts[1] ?? "0", 10);
   return ((hr * 60 + min) * 60 + sec) * 1000 + cs * 10;
 };
 

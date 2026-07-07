@@ -92,12 +92,209 @@ export const getMemberId = (): string | null => currentMemberId;
 /** 获取当前服务器端口 */
 export const getCurrentPort = (): number => currentPort;
 
+/** 安全遍历监听器，单个回调异常不影响其他回调 */
+const safeForEach = <T>(set: Set<(value: T) => void>, value: T): void => {
+  set.forEach((cb) => {
+    try {
+      cb(value);
+    } catch (err) {
+      console.error("[ListenTogether] 监听器回调异常:", err);
+    }
+  });
+};
+
 /** 设置连接状态 */
 const setState = (state: ListenTogetherConnectionState): void => {
   console.log(`[ListenTogether] 连接状态变化: ${connectionState} -> ${state}`);
   connectionState = state;
-  listeners.stateChange.forEach((cb) => cb(state));
+  safeForEach(listeners.stateChange, state);
 };
+
+// ====== 连接管理 ======
+
+/** 连接参数缓存，用于重连 */
+let connectionParams: {
+  serverUrl: string;
+  port: number;
+  roomId: string;
+  roomKey: string;
+  nickname: string;
+  neteaseUserId?: number;
+} | null = null;
+
+/** 是否手动断开（手动断开时不自动重连） */
+let isManualDisconnect = false;
+
+/** 当前连接操作的 Promise（防止并发连接） */
+let connectionPromise: Promise<boolean> | null = null;
+
+/** 当前连接操作的 resolve 函数 */
+let resolveConnection: ((value: boolean) => void) | null = null;
+
+/** 当前连接是否已被取消 */
+let connectionCancelled = false;
+
+/** 重连定时器 */
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 重连次数 */
+let reconnectAttempts = 0;
+
+/** 最大重连次数 */
+const MAX_RECONNECT_ATTEMPTS = 10;
+
+/** 基础重连延迟（毫秒） */
+const BASE_RECONNECT_DELAY = 1000;
+
+/** 最大重连延迟（毫秒） */
+const MAX_RECONNECT_DELAY = 30000;
+
+/** 心跳超时检测定时器 */
+let heartbeatTimeoutTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 上次收到消息的时间戳 */
+let lastMessageTime = 0;
+
+/**
+ * 推断 WebSocket 协议
+ * 支持 serverUrl 中显式指定 ws:// / wss:// / http:// / https://
+ * 未指定时按端口推断：443/8443 优先 wss，其他优先 ws
+ * @returns 清理后的地址和协议优先级列表
+ */
+function inferProtocols(
+  serverUrl: string,
+  port: number,
+): { cleanUrl: string; protocols: string[] } {
+  let clean = serverUrl.trim().replace(/\/+$/, "");
+
+  // 已显式指定 ws:// 或 wss://
+  const wsMatch = clean.match(/^wss?:\/\/(.+)$/);
+  if (wsMatch) {
+    clean = wsMatch[1].replace(/\/.*$/, "").replace(/:\d+$/, "");
+    return { cleanUrl: clean, protocols: [serverUrl.startsWith("wss") ? "wss" : "ws"] };
+  }
+
+  // 已显式指定 http:// 或 https://（映射到 ws/wss）
+  const httpMatch = clean.match(/^https?:\/\/(.+)$/);
+  if (httpMatch) {
+    clean = httpMatch[1].replace(/\/.*$/, "").replace(/:\d+$/, "");
+    return { cleanUrl: clean, protocols: [serverUrl.startsWith("https") ? "wss" : "ws"] };
+  }
+
+  // 处理 splayer-listentogether:// 或其他自定义协议前缀
+  const customProtocolMatch = clean.match(/^[a-z][a-z0-9+.-]*:\/\/(.+)$/i);
+  if (customProtocolMatch) {
+    clean = customProtocolMatch[1].replace(/\/.*$/, "").replace(/:\d+$/, "");
+    // 自定义协议前缀不指定 ws/wss，由端口推断
+    const isSecure = port === 443 || port === 8443;
+    return { cleanUrl: clean, protocols: isSecure ? ["wss", "ws"] : ["ws", "wss"] };
+  }
+
+  // 未指定协议，移除可能的路径和端口
+  clean = clean.replace(/\/.*$/, "").replace(/:\d+$/, "");
+
+  // 未指定协议，按端口推断
+  const isSecure = port === 443 || port === 8443;
+  return { cleanUrl: clean, protocols: isSecure ? ["wss", "ws"] : ["ws", "wss"] };
+}
+
+/**
+ * 计算重连延迟（指数退避 + 抖动）
+ */
+function getReconnectDelay(): number {
+  const delay = Math.min(
+    BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts),
+    MAX_RECONNECT_DELAY,
+  );
+  return delay + Math.random() * 1000;
+}
+
+/** 清除重连定时器 */
+function clearReconnect(): void {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+/** 安排重连 */
+function scheduleReconnect(): void {
+  if (isManualDisconnect || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.log("[ListenTogether] 重连次数已达上限，停止重试");
+      safeForEach(listeners.error, "重连次数已达上限，停止重试");
+    }
+    return;
+  }
+
+  clearReconnect();
+
+  const delay = getReconnectDelay();
+  console.log(`[ListenTogether] ${delay.toFixed(0)}ms 后尝试第 ${reconnectAttempts + 1} 次重连`);
+
+  reconnectTimer = setTimeout(() => {
+    reconnectAttempts++;
+    if (connectionParams) {
+      const { serverUrl, port, roomId, roomKey, nickname, neteaseUserId } = connectionParams;
+      void connect(serverUrl, port, roomId, roomKey, nickname, neteaseUserId);
+    }
+  }, delay);
+}
+
+/** 启动心跳超时检测 */
+function startHeartbeatTimeout(): void {
+  stopHeartbeatTimeout();
+  lastMessageTime = Date.now();
+
+  heartbeatTimeoutTimer = setInterval(() => {
+    if (connectionState !== "connected") return;
+
+    const elapsed = Date.now() - lastMessageTime;
+    if (elapsed > 60000) {
+      // 60s 内未收到任何消息，认为连接假死
+      console.log(`[ListenTogether] 心跳超时，${elapsed}ms 未收到消息，强制关闭连接`);
+      ws?.close();
+    }
+  }, 15000); // 每 15s 检查一次
+}
+
+/** 停止心跳超时检测 */
+function stopHeartbeatTimeout(): void {
+  if (heartbeatTimeoutTimer) {
+    clearInterval(heartbeatTimeoutTimer);
+    heartbeatTimeoutTimer = null;
+  }
+}
+
+/** 连接断开处理（仅用于意外断开） */
+function handleDisconnect(): void {
+  console.log(`[ListenTogether] 连接意外断开`);
+  stopHeartbeatTimeout();
+  stopHeartbeat();
+
+  ws = null;
+  memberToken = null;
+  cryptoKey = null;
+  currentMemberId = null;
+  currentServerUrl = "";
+  currentPort = 14558;
+  serverTimeOffset = 0;
+  if (isManualDisconnect) {
+    currentRoom = null;
+    setState("idle");
+    return;
+  }
+
+  safeForEach(listeners.error, "连接已断开");
+  setState("disconnected");
+  scheduleReconnect();
+}
+
+/** 连接已建立后的错误处理 */
+function handleError(err: Event): void {
+  console.log("[ListenTogether] 连接发生错误", err);
+  // 错误通常会触发 onclose，由 handleDisconnect 处理
+}
 
 /**
  * 使用 cryptoKey 对消息内容进行简单签名
@@ -126,117 +323,291 @@ export const connect = async (
   nickname: string,
   neteaseUserId?: number,
 ): Promise<boolean> => {
+  if (connectionPromise) {
+    console.log("[ListenTogether] 已有连接操作正在进行，强制取消旧连接");
+    connectionCancelled = true;
+    if (ws) {
+      const oldWs = ws;
+      ws = null;
+      oldWs.onopen = null;
+      oldWs.onmessage = null;
+      oldWs.onerror = null;
+      oldWs.onclose = null;
+      oldWs.close();
+    }
+    if (resolveConnection) {
+      resolveConnection(false);
+      resolveConnection = null;
+    }
+    connectionPromise = null;
+  }
+
   console.log(
     `[ListenTogether] 连接入口: serverUrl=${serverUrl}, port=${port}, roomId=${roomId}, nickname=${nickname}`,
   );
-  if (ws?.readyState === WebSocket.OPEN) {
-    console.log("[ListenTogether] 已有活跃连接，先执行断开");
-    disconnect();
+
+  if (ws !== null) {
+    console.log("[ListenTogether] 已有连接实例，先执行断开");
+    disconnect(true);
   }
-  // 清理所有旧监听器，避免多次连接导致同一消息被重复处理（如日志中的 3 条重复 sync）
-  for (const key of Object.keys(listeners)) {
-    (listeners[key as keyof typeof listeners] as Set<unknown>).clear();
-  }
-  console.log("[ListenTogether] 旧监听器已清理");
+
+  connectionCancelled = false;
+  connectionParams = { serverUrl, port, roomId, roomKey, nickname, neteaseUserId };
+  isManualDisconnect = false;
+  clearReconnect();
+  currentRoom = null;
 
   setState("connecting");
-  currentServerUrl = serverUrl;
-  currentPort = port;
 
-  return new Promise((resolve) => {
-    const wsUrl = `ws://${serverUrl}:${port}/ws`;
-    console.log(`[ListenTogether] 创建WebSocket: ${wsUrl}`);
-    ws = new WebSocket(wsUrl);
+  connectionPromise = establishConnection(
+    serverUrl,
+    port,
+    roomId,
+    roomKey,
+    nickname,
+    neteaseUserId,
+  );
+  const success = await connectionPromise;
+  connectionPromise = null;
+  resolveConnection = null;
+  connectionCancelled = false;
 
-    const timeout = setTimeout(() => {
-      console.log("[ListenTogether] 连接超时，关闭WebSocket");
-      ws?.close();
-      setState("error");
-      listeners.error.forEach((cb) => cb("连接超时"));
-      resolve(false);
-    }, 10000);
+  if (success) {
+    console.log("[ListenTogether] 连接成功，重置重连计数");
+    reconnectAttempts = 0;
+  } else if (!isManualDisconnect) {
+    setState("error");
+    safeForEach(listeners.error, "连接失败");
+    scheduleReconnect();
+  }
 
-    let resolved = false;
-    const safeResolve = (value: boolean): void => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        resolve(value);
-      }
-    };
-
-    ws.onopen = () => {
-      console.log("[ListenTogether] WebSocket已打开，发送加入房间请求");
-      // 发送加入房间请求（附带客户端时间戳，用于一次性时间同步）
-      const joinMsg: ListenTogetherClientMessage = {
-        op: "join",
-        payload: { roomId, roomKey, nickname, neteaseUserId, clientTimestamp: Date.now() },
-      };
-      ws?.send(JSON.stringify(joinMsg));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data as string) as ListenTogetherServerMessage;
-        console.log(`[ListenTogether] 收到服务端消息: kind=${msg.kind}`);
-        handleServerMessage(msg);
-        if (msg.kind === "joined") {
-          safeResolve(true);
-        }
-      } catch (err) {
-        console.log("[ListenTogether] 消息解析失败", err);
-        listeners.error.forEach((cb) => cb("消息解析失败"));
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.log("[ListenTogether] WebSocket发生错误", err);
-      setState("error");
-      listeners.error.forEach((cb) => cb("WebSocket连接错误"));
-      safeResolve(false);
-    };
-
-    ws.onclose = () => {
-      console.log(`[ListenTogether] WebSocket已关闭，当前状态=${connectionState}`);
-      if (
-        connectionState !== "idle" &&
-        connectionState !== "error" &&
-        connectionState !== "connected"
-      ) {
-        setState("disconnected");
-      }
-      currentRoom = null;
-      memberToken = null;
-      cryptoKey = null;
-      listeners.roomUpdate.forEach((cb) => cb(null));
-      safeResolve(false);
-    };
-  });
+  return success;
 };
 
 /** 断开连接 */
-export const disconnect = (): void => {
-  console.log(`[ListenTogether] 断开连接入口，当前房间=${currentRoom?.id ?? "无"}`);
+export const disconnect = (preserveListeners = false): void => {
+  console.log(`[ListenTogether] 手动断开连接，当前房间=${currentRoom?.id ?? "无"}`);
+
+  isManualDisconnect = true;
+  connectionCancelled = true;
+  clearReconnect();
+  stopHeartbeatTimeout();
+  stopHeartbeat(); // 停止心跳发送定时器，避免泄漏
+
+  // 通知正在进行的连接操作立即结束，避免 Promise 永远挂起
+  if (resolveConnection) {
+    resolveConnection(false);
+    resolveConnection = null;
+  }
+
+  // 移除所有处理器，避免触发重连逻辑
+  if (ws) {
+    ws.onclose = null;
+    ws.onerror = null;
+    ws.onmessage = null;
+    ws.onopen = null;
+  }
+
   if (ws?.readyState === WebSocket.OPEN) {
     console.log("[ListenTogether] 发送离开房间消息");
     const leaveMsg: ListenTogetherClientMessage = { op: "leave" };
-    ws.send(JSON.stringify(leaveMsg));
+    try {
+      ws.send(JSON.stringify(leaveMsg));
+    } catch {
+      // 忽略发送失败
+    }
   }
   ws?.close();
   ws = null;
+
   currentRoom = null;
   memberToken = null;
   cryptoKey = null;
   currentServerUrl = "";
   currentPort = 14558;
   serverTimeOffset = 0;
-  // 断开时一并清理监听器，防止断开后残留回调导致消息重复处理
-  for (const key of Object.keys(listeners)) {
-    (listeners[key as keyof typeof listeners] as Set<unknown>).clear();
-  }
+  currentMemberId = null; // 重置当前成员ID
+
+  // 先通知状态变化，再清空监听器，避免 UI 收不到断开通知
   setState("idle");
-  console.log("[ListenTogether] 断开连接完成，状态已重置为idle");
+  connectionParams = null;
+
+  // 仅在真正手动断开时重置重连计数，connect() 清理旧连接时保留指数退避
+  if (!preserveListeners) {
+    reconnectAttempts = 0;
+  }
+
+  // 断开时一并清理监听器（除非调用方要求保留）
+  if (!preserveListeners) {
+    for (const key of Object.keys(listeners)) {
+      (listeners[key as keyof typeof listeners] as Set<unknown>).clear();
+    }
+  }
+
+  console.log("[ListenTogether] 断开连接完成，状态已重置为 idle");
 };
+
+/**
+ * 建立 WebSocket 连接（内部函数，尝试多种协议）
+ */
+function establishConnection(
+  serverUrl: string,
+  port: number,
+  roomId: string,
+  roomKey: string,
+  nickname: string,
+  neteaseUserId?: number,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    resolveConnection = resolve;
+
+    const { cleanUrl, protocols } = inferProtocols(serverUrl, port);
+    currentServerUrl = cleanUrl;
+    currentPort = port;
+
+    let protocolIndex = 0;
+    let resolved = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = (): void => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+    };
+
+    const resolveOnce = (value: boolean): void => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve(value);
+      }
+    };
+
+    const tryProtocol = (): void => {
+      if (connectionCancelled || resolved) {
+        resolveOnce(false);
+        return;
+      }
+
+      if (protocolIndex >= protocols.length) {
+        console.log("[ListenTogether] 所有协议尝试失败");
+        resolveOnce(false);
+        return;
+      }
+
+      const protocol = protocols[protocolIndex];
+      const wsUrl = `${protocol}://${cleanUrl}:${port}/ws`;
+      console.log(`[ListenTogether] 创建WebSocket: ${wsUrl}`);
+
+      // 关闭旧 WebSocket 并解绑回调，避免协议降级时旧连接竞态
+      if (ws) {
+        const oldWs = ws;
+        ws = null;
+        oldWs.onopen = null;
+        oldWs.onmessage = null;
+        oldWs.onerror = null;
+        oldWs.onclose = null;
+        oldWs.close();
+      }
+
+      ws = new WebSocket(wsUrl);
+
+      timeout = setTimeout(() => {
+        console.log(`[ListenTogether] ${protocol.toUpperCase()} 连接超时`);
+        ws?.close();
+      }, 10000);
+
+      ws.onopen = () => {
+        if (connectionCancelled || resolved) {
+          ws?.close();
+          return;
+        }
+        cleanup(); // 连接已打开，清除超时定时器
+        console.log(`[ListenTogether] WebSocket已打开，发送加入房间请求`);
+        const joinMsg: ListenTogetherClientMessage = {
+          op: "join",
+          payload: { roomId, roomKey, nickname, neteaseUserId, clientTimestamp: Date.now() },
+        };
+        ws?.send(JSON.stringify(joinMsg));
+      };
+
+      ws.onmessage = (event) => {
+        if (connectionCancelled || resolved) return;
+
+        // 更新最后消息时间，用于心跳超时检测
+        lastMessageTime = Date.now();
+
+        try {
+          const msg = JSON.parse(event.data as string) as ListenTogetherServerMessage;
+          console.log(`[ListenTogether] 收到服务端消息: kind=${msg.kind}`);
+          handleServerMessage(msg);
+
+          if (msg.kind === "error") {
+            ws?.close();
+            resolveOnce(false);
+            return;
+          }
+
+          if (msg.kind === "joined") {
+            const data = msg.data as
+              | { token?: string; room?: ListenTogetherRoom; memberId?: string }
+              | undefined;
+            if (data?.token && data?.room?.id && data?.memberId) {
+              // 连接建立成功，切换到长期处理器
+              cleanup();
+              ws!.onclose = handleDisconnect;
+              ws!.onerror = handleError;
+              ws!.onmessage = (event) => {
+                if (connectionCancelled) return;
+                lastMessageTime = Date.now();
+                try {
+                  const serverMsg = JSON.parse(event.data as string) as ListenTogetherServerMessage;
+                  handleServerMessage(serverMsg);
+                } catch (err) {
+                  console.log("[ListenTogether] 消息解析失败", err);
+                  safeForEach(listeners.error, "消息解析失败");
+                }
+              };
+              startHeartbeat();
+              startHeartbeatTimeout();
+              resolveOnce(true);
+            } else {
+              // joined 消息数据不完整，连接失败
+              console.log("[ListenTogether] joined 消息数据不完整，连接失败");
+              resolved = true;
+              ws?.close();
+              resolveOnce(false);
+            }
+          }
+        } catch (err) {
+          console.log("[ListenTogether] 消息解析失败", err);
+          safeForEach(listeners.error, "消息解析失败");
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.log(`[ListenTogether] ${protocol.toUpperCase()} 连接发生错误`, err);
+      };
+
+      ws.onclose = () => {
+        cleanup();
+        if (connectionCancelled || isManualDisconnect) {
+          console.log("[ListenTogether] 连接被取消或手动断开，停止尝试后续协议");
+          resolveOnce(false);
+          return;
+        }
+        if (!resolved) {
+          // 该协议连接失败，尝试下一个协议
+          protocolIndex++;
+          tryProtocol();
+        }
+      };
+    };
+
+    tryProtocol();
+  });
+}
 
 /** 处理服务端消息 */
 const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
@@ -254,12 +625,18 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
             clientTimestamp?: number;
           }
         | undefined;
-      if (data) {
+      if (data && data.token && data.room && data.room.id && data.memberId) {
         console.log(
-          `[ListenTogether] 加入房间成功: roomId=${data.room.id}, memberCount=${data.room.members.length}, token=${data.token.slice(0, 8)}..., memberId=${data.memberId?.slice(0, 8) ?? "null"}...`,
+          `[ListenTogether] 加入房间成功: roomId=${data.room.id}, memberCount=${data.room.members.length}, token=${data.token.slice(0, 8)}..., memberId=${data.memberId.slice(0, 8)}...`,
         );
         memberToken = data.token;
-        currentRoom = data.room;
+        // 深拷贝房间数据，避免与服务端共享引用导致状态不同步
+        currentRoom = {
+          ...data.room,
+          members: data.room.members.map((m) => ({ ...m })),
+          currentTrack: data.room.currentTrack ? { ...data.room.currentTrack } : null,
+          queue: data.room.queue ? data.room.queue.map((q) => ({ ...q })) : [],
+        };
         currentMemberId = data.memberId ?? null;
         if (data.cryptoKey) {
           console.log("[ListenTogether] 收到加密密钥");
@@ -277,12 +654,13 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         }
         if (data.chatHistory && data.chatHistory.length > 0) {
           console.log(`[ListenTogether] 收到聊天历史: ${data.chatHistory.length}条`);
-          listeners.chatHistory.forEach((cb) => cb(data.chatHistory!));
+          safeForEach(listeners.chatHistory, data.chatHistory);
         }
         setState("connected");
-        listeners.roomUpdate.forEach((cb) => cb(data.room));
+        safeForEach(listeners.roomUpdate, currentRoom);
       } else {
-        console.log("[ListenTogether] joined消息无数据");
+        console.log("[ListenTogether] joined消息数据不完整，加入失败");
+        safeForEach(listeners.error, "加入房间失败：服务端返回数据不完整");
       }
       break;
     }
@@ -295,8 +673,8 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         if (currentRoom && !currentRoom.members.find((m) => m.id === data.member.id)) {
           currentRoom.members.push(data.member);
         }
-        listeners.memberJoined.forEach((cb) => cb(data.member));
-        listeners.roomUpdate.forEach((cb) => cb(currentRoom));
+        safeForEach(listeners.memberJoined, data.member);
+        safeForEach(listeners.roomUpdate, currentRoom);
       }
       break;
     }
@@ -307,8 +685,21 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
           `[ListenTogether] 成员离开: memberId=${data.memberId}, memberCount=${data.memberCount}`,
         );
         currentRoom.members = currentRoom.members.filter((m) => m.id !== data.memberId);
-        listeners.memberLeft.forEach((cb) => cb(data.memberId));
-        listeners.roomUpdate.forEach((cb) => cb(currentRoom));
+        safeForEach(listeners.memberLeft, data.memberId);
+        safeForEach(listeners.roomUpdate, currentRoom);
+      }
+      break;
+    }
+    case "roomUpdate": {
+      const updatedRoom = msg.data as ListenTogetherRoom | undefined;
+      if (updatedRoom?.id) {
+        currentRoom = {
+          ...updatedRoom,
+          members: updatedRoom.members.map((m) => ({ ...m })),
+          currentTrack: updatedRoom.currentTrack ? { ...updatedRoom.currentTrack } : null,
+          queue: updatedRoom.queue ? updatedRoom.queue.map((q) => ({ ...q })) : [],
+        };
+        safeForEach(listeners.roomUpdate, currentRoom);
       }
       break;
     }
@@ -323,7 +714,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
           currentRoom.position = syncState.position;
           currentRoom.state = syncState.isPlaying ? "playing" : "paused";
         }
-        listeners.sync.forEach((cb) => cb(syncState));
+        safeForEach(listeners.sync, syncState);
       }
       break;
     }
@@ -333,7 +724,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         console.log(
           `[ListenTogether] 收到提案: proposalId=${proposal.id}, type=${proposal.type}, proposer=${proposal.proposerId}`,
         );
-        listeners.proposal.forEach((cb) => cb(proposal));
+        safeForEach(listeners.proposal, proposal);
       }
       break;
     }
@@ -345,7 +736,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         console.log(
           `[ListenTogether] 投票更新: proposalId=${data.proposalId}, memberId=${data.memberId}, agree=${data.agree}, passed=${data.passed}`,
         );
-        listeners.voteUpdate.forEach((cb) => cb(data));
+        safeForEach(listeners.voteUpdate, data);
       }
       break;
     }
@@ -357,7 +748,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         console.log(
           `[ListenTogether] 提案执行: proposalId=${data.proposalId}, result=${data.result}`,
         );
-        listeners.executed.forEach((cb) => cb(data));
+        safeForEach(listeners.executed, data);
       }
       break;
     }
@@ -367,7 +758,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         console.log(
           `[ListenTogether] 收到聊天消息: sender=${message.senderId}, content=${message.content.slice(0, 50)}`,
         );
-        listeners.chat.forEach((cb) => cb(message));
+        safeForEach(listeners.chat, message);
       }
       break;
     }
@@ -376,38 +767,45 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
       console.log(`[ListenTogether] 服务端错误详情原始data:`, JSON.stringify(msg.data));
       if (data?.error) {
         console.log(`[ListenTogether] 服务端错误: ${data.error}`);
-        listeners.error.forEach((cb) => cb(data.error));
+        safeForEach(listeners.error, data.error);
       } else {
         console.log(
           `[ListenTogether] 服务端错误但data为空或error为空, data=`,
           JSON.stringify(data),
         );
-        listeners.error.forEach((cb) => cb(data?.error || "未知错误"));
+        safeForEach(listeners.error, "服务端返回错误");
       }
       break;
     }
     case "roomClosed": {
-      console.log("[ListenTogether] 房间已关闭，执行断开连接");
+      console.log("[ListenTogether] 房间已关闭，通知UI后执行断开连接");
+      safeForEach(listeners.error, "房间已关闭");
+      safeForEach(listeners.roomUpdate, null);
       disconnect();
-      listeners.error.forEach((cb) => cb("房间已关闭"));
       break;
     }
     case "kicked": {
       const data = msg.data as { memberId: string; reason?: string } | undefined;
+      const targetMemberId = data?.memberId;
       console.log(
-        `[ListenTogether] 被踢出房间: memberId=${data?.memberId}, reason=${data?.reason ?? "无"}`,
+        `[ListenTogether] 收到踢出通知: memberId=${targetMemberId}, reason=${data?.reason ?? "无"}`,
       );
-      disconnect();
-      listeners.kicked.forEach((cb) => cb(data?.reason || "被房主踢出"));
+      if (!targetMemberId || targetMemberId === currentMemberId) {
+        safeForEach(listeners.kicked, data?.reason ?? "被踢出房间");
+        disconnect();
+      }
       break;
     }
     case "blacklisted": {
       const data = msg.data as { memberId: string; reason?: string } | undefined;
+      const targetMemberId = data?.memberId;
       console.log(
-        `[ListenTogether] 被拉黑: memberId=${data?.memberId}, reason=${data?.reason ?? "无"}`,
+        `[ListenTogether] 收到拉黑通知: memberId=${targetMemberId}, reason=${data?.reason ?? "无"}`,
       );
-      disconnect();
-      listeners.blacklisted.forEach((cb) => cb(data?.reason || "被房主拉黑"));
+      if (!targetMemberId || targetMemberId === currentMemberId) {
+        safeForEach(listeners.blacklisted, data?.reason ?? "已被拉黑");
+        disconnect();
+      }
       break;
     }
     case "onlineUrl": {
@@ -416,7 +814,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         console.log(
           `[ListenTogether] 收到在线URL: trackId=${data.trackId}, url长度=${data.url.length}`,
         );
-        listeners.onlineUrl.forEach((cb) => cb(data));
+        safeForEach(listeners.onlineUrl, data);
       }
       break;
     }
@@ -424,22 +822,22 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
       const queue = msg.data as ListenTogetherQueueItem[] | undefined;
       if (queue && currentRoom) {
         currentRoom.queue = queue;
-        listeners.queueUpdate.forEach((cb) => cb(queue));
-        listeners.roomUpdate.forEach((cb) => cb(currentRoom));
+        safeForEach(listeners.queueUpdate, queue);
+        safeForEach(listeners.roomUpdate, currentRoom);
       }
       break;
     }
     case "searchShared": {
       const share = msg.data as ListenTogetherSearchShare | undefined;
       if (share) {
-        listeners.searchShared.forEach((cb) => cb(share));
+        safeForEach(listeners.searchShared, share);
       }
       break;
     }
     case "reaction": {
       const reaction = msg.data as ListenTogetherReaction | undefined;
       if (reaction) {
-        listeners.reaction.forEach((cb) => cb(reaction));
+        safeForEach(listeners.reaction, reaction);
       }
       break;
     }
@@ -449,7 +847,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         console.log(
           `[ListenTogether] 收到最优音源: memberId=${source.memberId}, quality=${source.quality}, type=${source.sourceType}`,
         );
-        listeners.bestAudioSource.forEach((cb) => cb(source));
+        safeForEach(listeners.bestAudioSource, source);
       }
       break;
     }
@@ -457,14 +855,14 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
       const sources = msg.data as ListenTogetherAudioSource[] | undefined;
       if (sources) {
         console.log(`[ListenTogether] 收到音源更新: 共${sources.length}个音源`);
-        listeners.audioSourceUpdate.forEach((cb) => cb(sources));
+        safeForEach(listeners.audioSourceUpdate, sources);
       }
       break;
     }
     case "messageRecalled": {
       const data = msg.data as { messageId: string; recalledBy: string } | undefined;
       if (data) {
-        listeners.messageRecalled.forEach((cb) => cb(data));
+        safeForEach(listeners.messageRecalled, data);
       }
       break;
     }
@@ -472,7 +870,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
       const data = msg.data as { msgId: string; seqId: number } | undefined;
       if (data) {
         console.log(`[ListenTogether] 收到聊天确认: msgId=${data.msgId}, seqId=${data.seqId}`);
-        listeners.chatAck.forEach((cb) => cb(data));
+        safeForEach(listeners.chatAck, data);
       }
       break;
     }
@@ -509,8 +907,12 @@ export const sendSync = async (
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 播放同步已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 播放同步已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送播放同步异常:", err);
+  }
 };
 
 /** 发送操作提案 */
@@ -528,8 +930,12 @@ export const sendProposal = async (type: string, payload: unknown): Promise<void
     payload: data,
     signature: await signPayload(data),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 提案已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 提案已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送提案异常:", err);
+  }
 };
 
 /** 发送投票 */
@@ -545,8 +951,12 @@ export const sendVote = async (proposalId: string, agree: boolean): Promise<void
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 投票已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 投票已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送投票异常:", err);
+  }
 };
 
 /** 发送聊天消息
@@ -570,15 +980,19 @@ export const sendChat = async (
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 聊天消息已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 聊天消息已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送聊天消息异常:", err);
+  }
 };
 
 /** 发送撤回消息 */
 export const sendRecall = async (messageId: string): Promise<void> => {
   if (ws?.readyState !== WebSocket.OPEN) {
     console.log("[ListenTogether] 发送撤回失败: WebSocket未打开");
-    throw new Error("WebSocket未连接");
+    return;
   }
   console.log(`[ListenTogether] 发送撤回请求: messageId=${messageId}`);
   const payload = { messageId };
@@ -587,19 +1001,32 @@ export const sendRecall = async (messageId: string): Promise<void> => {
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 撤回请求已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 撤回请求已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送撤回异常:", err);
+  }
 };
 
 /** 发送心跳 */
-export const sendHeartbeat = (): void => {
+export const sendHeartbeat = async (): Promise<void> => {
   if (ws?.readyState !== WebSocket.OPEN) {
     console.log("[ListenTogether] 发送心跳失败: WebSocket未打开");
     return;
   }
   console.log("[ListenTogether] 发送心跳");
-  const msg: ListenTogetherClientMessage = { op: "heartbeat" };
-  ws.send(JSON.stringify(msg));
+  const payload = { timestamp: Date.now() };
+  const msg: ListenTogetherClientMessage = {
+    op: "heartbeat",
+    payload,
+    signature: await signPayload(payload),
+  };
+  try {
+    ws.send(JSON.stringify(msg));
+  } catch (err) {
+    console.log("[ListenTogether] 发送心跳异常:", err);
+  }
 };
 
 /** 发送踢出请求（仅房主） */
@@ -615,8 +1042,12 @@ export const sendKick = async (memberId: string): Promise<void> => {
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 踢出请求已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 踢出请求已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送踢出请求异常:", err);
+  }
 };
 
 /** 发送拉黑请求（仅房主） */
@@ -632,15 +1063,21 @@ export const sendBlacklist = async (memberId: string): Promise<void> => {
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 拉黑请求已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 拉黑请求已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送拉黑请求异常:", err);
+  }
 };
 
-/** 发送队列操作 */
-export const sendQueue = async (action: string, payload: unknown): Promise<void> => {
+/** 发送队列操作
+ * @returns 是否发送成功
+ */
+export const sendQueue = async (action: string, payload: unknown): Promise<boolean> => {
   if (ws?.readyState !== WebSocket.OPEN) {
     console.log("[ListenTogether] 发送队列操作失败: WebSocket未打开");
-    return;
+    return false;
   }
   console.log(`[ListenTogether] 发送队列操作: action=${action}`);
   const data = { action, data: payload };
@@ -649,8 +1086,14 @@ export const sendQueue = async (action: string, payload: unknown): Promise<void>
     payload: data,
     signature: await signPayload(data),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 队列操作已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 队列操作已发送");
+    return true;
+  } catch (err) {
+    console.log("[ListenTogether] 发送队列操作异常:", err);
+    return false;
+  }
 };
 
 /** 发送搜索共享 */
@@ -670,8 +1113,12 @@ export const sendSearchShare = async (
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 搜索共享已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 搜索共享已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送搜索共享异常:", err);
+  }
 };
 
 /** 发送表情反应 */
@@ -687,8 +1134,12 @@ export const sendReaction = async (emoji: string): Promise<void> => {
     payload,
     signature: await signPayload(payload),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 表情反应已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 表情反应已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送表情反应异常:", err);
+  }
 };
 
 /** 发送音源品质报告 */
@@ -705,8 +1156,20 @@ export const sendAudioSource = async (source: ListenTogetherAudioSource): Promis
     payload: source,
     signature: await signPayload(source),
   };
-  ws.send(JSON.stringify(msg));
-  console.log("[ListenTogether] 音源报告已发送");
+  try {
+    ws.send(JSON.stringify(msg));
+    console.log("[ListenTogether] 音源报告已发送");
+  } catch (err) {
+    console.log("[ListenTogether] 发送音源报告异常:", err);
+  }
+};
+
+/** 清除所有监听器 */
+export const clearAllListeners = (): void => {
+  for (const key of Object.keys(listeners)) {
+    (listeners[key as keyof typeof listeners] as Set<unknown>).clear();
+  }
+  console.log("[ListenTogether] 所有监听器已清除");
 };
 
 /** 订阅连接状态变化 */

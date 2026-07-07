@@ -39,17 +39,18 @@ let speed = 1.0;
  * 偏差小于此值视作 IPC 延迟 / 解码抖动，保留插值避免可见跳跃；
  * 大于此值视作真实跳变（漏拦截的 seek、跳曲等），直接采用推送值
  */
-const SYNC_TOLERANCE_MS = 1000;
+const SYNC_TOLERANCE_MS = 50;
 
 /**
  * 小幅偏差时向推送位置收敛的比例
  */
-const SYNC_CONVERGE_RATE = 0.2;
+const SYNC_CONVERGE_RATE = 1.0;
 
 /** 获取当前播放位置（毫秒），播放中按 speed 插值，seek 中冻结 */
 export const getCurrentTime = (): number => {
   if (!playing || seeking) return currentTimeMs;
   const elapsed = performance.now() - lastSyncAt;
+  if (totalDurationMs <= 0) return currentTimeMs + elapsed * speed;
   return Math.min(currentTimeMs + elapsed * speed, totalDurationMs);
 };
 
@@ -109,12 +110,13 @@ export const setPlaying = (value: boolean): void => {
  * 切速度瞬间，先按旧 speed 把可见位置推到 now，再切，避免视觉跳变
  */
 export const setSpeed = (value: number): void => {
-  if (value === speed) return;
+  const safe = Number.isFinite(value) ? value : 1.0;
+  if (safe === speed) return;
   if (playing && !seeking) {
     currentTimeMs = getCurrentTime();
     lastSyncAt = performance.now();
   }
-  speed = value;
+  speed = safe;
 };
 
 /** 最新 FFT 频谱帧 */

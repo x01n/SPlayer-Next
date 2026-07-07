@@ -32,7 +32,7 @@ const {
 } = storeToRefs(streaming);
 const settingsDialog = useSettingsDialog();
 
-streaming.init();
+streaming.init().catch(() => {});
 
 /** 状态点颜色 */
 const dotClass = computed(() => {

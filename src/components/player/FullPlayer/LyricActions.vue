@@ -3,6 +3,8 @@ import { useMediaStore } from "@/stores/media";
 import { useStatusStore } from "@/stores/status";
 import { useSettingsDialog } from "@/settings/useSettingsDialog";
 import { formatSignedSec } from "@/utils/time";
+import { applyManualLyric } from "@/services/lyricLoader";
+import LyricSearchDialog from "@/components/player/FullPlayer/Lyrics/LyricSearchDialog.vue";
 
 defineProps<{
   /** 是否处于沉浸模式 */
@@ -13,6 +15,9 @@ const { t } = useI18n();
 const media = useMediaStore();
 const status = useStatusStore();
 const settingsDialog = useSettingsDialog();
+
+/** 歌词搜索弹窗是否打开 */
+const lyricSearchOpen = ref(false);
 
 /** 歌词偏移步长（ms） */
 const LYRIC_OFFSET_STEP = 500;
@@ -60,6 +65,16 @@ const resetLyricOffset = (): void => writeOffset(0);
           : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
     "
   >
+    <SButton
+      type="cover"
+      variant="ghost"
+      circle
+      :size="40"
+      :disabled="!hasTrack"
+      @click="lyricSearchOpen = true"
+    >
+      <template #icon><IconLucideSearch /></template>
+    </SButton>
     <SButton
       type="cover"
       variant="ghost"
@@ -128,9 +143,20 @@ const resetLyricOffset = (): void => writeOffset(0);
       <template #icon><IconLucideMinus /></template>
     </SButton>
     <div class="h-px w-6 bg-cover/25 my-1" />
+    <SButton
+      type="cover"
+      variant="ghost"
+      circle
+      :size="40"
+      :disabled="!hasTrack"
+      @click="status.showVideoBgDialog(media.track!)"
+    >
+      <template #icon><IconLucideFilm /></template>
+    </SButton>
     <SButton type="cover" variant="ghost" circle :size="40" @click="settingsDialog.show('lyric')">
       <template #icon><IconLucideSettings2 /></template>
     </SButton>
     <CopyLyricsDialog v-model:open="copyDialogOpen" />
+    <LyricSearchDialog v-model:open="lyricSearchOpen" @apply="applyManualLyric" />
   </div>
 </template>

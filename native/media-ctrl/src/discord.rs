@@ -333,9 +333,9 @@ fn background_loop(rx: &Receiver<Msg>) {
                 worker.sync();
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if worker.client.is_none() {
-                    worker.sync();
-                }
+                // 定期调用 sync：client 为 None 时尝试重连，client 为 Some 时
+                // do_update 失败会触发 disconnect，从而在下一次 timeout 时重连
+                worker.sync();
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }

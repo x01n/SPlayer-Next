@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import { electronApp, optimizer } from "@electron-toolkit/utils";
 import {
   createMainWindow,
@@ -36,6 +36,30 @@ import {
   extractListenTogetherUrl,
   captureListenTogetherUrl,
 } from "@main/services/listenTogetherProtocol";
+
+// 为 Bilibili CDN 视频请求注入 Referer，避免 403
+const configureBilibiliVideoReferer = (): void => {
+  const bilibiliFilter = {
+    urls: [
+      "*://*.bilibili.com/*",
+      "*://*.bilivideo.com/*",
+      "*://*.bcdn.bilibili.com/*",
+      "*://*.hdslb.com/*",
+      "*://*.mcdn.bilibili.com/*",
+      "*://*.szbdyd.com/*",
+    ],
+  };
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    bilibiliFilter,
+    (details: Electron.OnBeforeSendHeadersListenerDetails, callback: (response: Electron.BeforeSendResponse) => void) => {
+      const headers = details.requestHeaders;
+      if (!headers.Referer) {
+        headers.Referer = "https://www.bilibili.com";
+      }
+      callback({ requestHeaders: headers });
+    },
+  );
+};
 
 /**
  * 配置 Chromium 启动参数以优化内存占用
@@ -132,6 +156,8 @@ export const initApp = (): void => {
     registerIpcHandlers();
     // 创建主窗口
     createMainWindow();
+    // 配置 Bilibili 视频 Referer 注入
+    configureBilibiliVideoReferer();
     // 注册 orpheus 协议并处理冷启动唤起
     initOrpheusRegistration();
     const coldOrpheusUrl = extractOrpheusUrl(process.argv);

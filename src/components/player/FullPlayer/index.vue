@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { usePlaybackTime } from "@/composables/usePlaybackTime";
 import { getCurrentTime } from "@/services/playback";
 import type { QualityLevel } from "@/utils/quality";
+import type { LyricMatchResult } from "@shared/types/lyrics";
 import { useFavorite } from "@/composables/useFavorite";
 import { useDownload, buildDownloadQualityItems } from "@/composables/useDownload";
 import { usePlaylistPicker } from "@/composables/usePlaylistPicker";
@@ -13,6 +14,8 @@ import { useTimeFormat } from "@/composables/useTimeFormat";
 import Lyrics from "@/components/player/Lyrics/index.vue";
 import AMLLLyrics from "@/components/player/Lyrics/AMLLLyrics.vue";
 import PlaylistPickerDialog from "@/components/modals/PlaylistPickerDialog.vue";
+import LyricSearchDialog from "@/components/player/FullPlayer/Lyrics/LyricSearchDialog.vue";
+import { applyManualLyric } from "@/services/lyricLoader";
 import { useWindowControls } from "@/composables/useWindowControls";
 import * as player from "@/core/player";
 import { openExternal } from "@/utils/url";
@@ -158,6 +161,12 @@ const {
   mode: pickerMode,
   openPicker,
 } = usePlaylistPicker();
+
+const lyricSearchOpen = ref(false);
+
+const handleApplyLyric = (result: LyricMatchResult): void => {
+  applyManualLyric(result);
+};
 
 const lyricToggleDisabled = computed(() => !hasLyric.value || fullscreenCover.value);
 const lyricToggleActive = computed(
@@ -362,9 +371,13 @@ const showComments = (): void => {
               </Lyrics>
               <div
                 v-else-if="lyricMounted"
-                class="w-full h-full flex items-center justify-center text-cover/30"
+                class="w-full h-full flex flex-col items-center justify-center gap-4 text-cover/30"
               >
-                暂无歌词
+                <span>{{ t("player.lyricSearch.empty") }}</span>
+                <SButton type="cover" variant="secondary" @click="lyricSearchOpen = true">
+                  <template #icon><IconLucideSearch /></template>
+                  {{ t("player.lyricSearch.search") }}
+                </SButton>
               </div>
             </div>
             <!-- 歌词侧边工具栏 -->
@@ -553,6 +566,7 @@ const showComments = (): void => {
       </div>
     </Transition>
     <PlaylistPickerDialog v-model:open="pickerOpen" :mode="pickerMode" :tracks="pickerTracks" />
+    <LyricSearchDialog v-model:open="lyricSearchOpen" @apply="handleApplyLyric" />
   </Teleport>
 </template>
 

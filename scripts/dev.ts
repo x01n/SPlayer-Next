@@ -5,8 +5,8 @@
  * 自动检测操作系统并设置相应的字符编码
  */
 
-import { spawn } from "child_process";
-import os from "os";
+import { spawn } from "node:child_process";
+import os from "node:os";
 
 // 检测操作系统平台
 const platform = os.platform();
@@ -21,8 +21,11 @@ const env: NodeJS.ProcessEnv = { ...process.env };
 const startElectronVite = (): void => {
   console.log("正在启动 Electron Vite 开发服务器...");
 
-  // 设置 Node.js 选项
-  env.NODE_OPTIONS = "--max-old-space-size=4096";
+  // 设置 Node.js 选项，保留用户已有的 NODE_OPTIONS
+  const existingOptions = env.NODE_OPTIONS ?? "";
+  env.NODE_OPTIONS = existingOptions
+    ? `${existingOptions} --max-old-space-size=4096`
+    : "--max-old-space-size=4096";
 
   // 传递给 electron-vite 的参数
   const runArgs = ["dev"];
@@ -78,6 +81,11 @@ if (isWindows) {
       console.warn("代码页设置失败，继续启动...");
       startElectronVite();
     }
+  });
+
+  chcp.on("error", (err) => {
+    console.warn("代码页设置进程启动失败，继续启动...", err.message);
+    startElectronVite();
   });
 } else {
   // macOS 和 Linux 环境

@@ -32,6 +32,9 @@ const fail = (ws: WSContext, op: string, error: string): void => {
 };
 
 const dispatchCommand = async (ws: WSContext, msg: ClientMessage): Promise<void> => {
+  if (!msg || typeof msg !== "object" || typeof msg.op !== "string") {
+    return fail(ws, "?", "invalid message");
+  }
   try {
     // 一起听操作优先处理
     const listenTogetherOps = new Set([

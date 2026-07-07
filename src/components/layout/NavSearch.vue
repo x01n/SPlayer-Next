@@ -35,6 +35,11 @@ const parsedLink = computed(() => parseMusicLink(trimmedQuery.value));
 const hotItems = ref<HotSearchItem[]>([]);
 
 const loadHot = async (): Promise<void> => {
+  if (!window.api?.apis) {
+    hotItems.value = [];
+    return;
+  }
+
   try {
     hotItems.value = await getHotSearches();
   } catch (err) {
@@ -48,6 +53,11 @@ const EMPTY_SUGGEST: SuggestData = { songs: [], albums: [], artists: [], playlis
 const suggest = ref<SuggestData>({ ...EMPTY_SUGGEST });
 
 const loadSuggest = useDebounceFn(async (keyword: string) => {
+  if (!window.api?.apis) {
+    suggest.value = { ...EMPTY_SUGGEST };
+    return;
+  }
+
   try {
     suggest.value = await getSearchSuggest(keyword);
   } catch (err) {

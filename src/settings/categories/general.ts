@@ -26,26 +26,26 @@ const generalCategory: SettingCategory = {
         {
           key: "rememberWindowState",
           type: "switch",
-          binding: { store: "settings", path: "system.system.rememberWindowState" },
+          binding: { store: "settings", path: "system.rememberWindowState" },
           defaultValue: true,
         },
         {
           key: "taskbarProgress",
           type: "switch",
-          binding: { store: "settings", path: "system.system.taskbarProgress" },
+          binding: { store: "settings", path: "system.taskbarProgress" },
           defaultValue: true,
         },
         {
           key: "taskbarThumbnailCover",
           type: "switch",
-          binding: { store: "settings", path: "system.system.taskbarThumbnailCover" },
+          binding: { store: "settings", path: "system.taskbarThumbnailCover" },
           defaultValue: true,
           visible: () => navigator.platform.startsWith("Win"),
         },
         {
           key: "orpheusProtocol",
           type: "switch",
-          binding: { store: "settings", path: "system.system.registerOrpheusProtocol" },
+          binding: { store: "settings", path: "system.registerOrpheusProtocol" },
           defaultValue: false,
         },
         {
@@ -101,6 +101,7 @@ const generalCategory: SettingCategory = {
           type: "custom",
           component: StorageManager,
           fullWidth: true,
+          hideDescription: true,
           keywords: ["backup.label", "restore.label", "resetSettings.label", "resetAll.label"],
         },
       ],

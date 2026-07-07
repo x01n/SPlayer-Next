@@ -14,6 +14,7 @@ export const useDownloadStore = defineStore("download", () => {
   const tasks = shallowRef<DownloadTask[]>([]);
   const initialized = ref(false);
   const unsubscribers: Array<() => void> = [];
+  const electronApi = window.api;
 
   /** 进行中任务数（侧边栏角标） */
   const activeCount = computed(
@@ -46,23 +47,26 @@ export const useDownloadStore = defineStore("download", () => {
   const init = async (): Promise<void> => {
     if (initialized.value) return;
     initialized.value = true;
-    tasks.value = await window.api.download.list();
-    unsubscribers.push(window.api.download.onState(applyTask));
-    unsubscribers.push(window.api.download.onProgress(applyProgress));
+    if (!electronApi) return;
+    unsubscribers.push(electronApi.download.onState(applyTask));
+    unsubscribers.push(electronApi.download.onProgress(applyProgress));
+    tasks.value = await electronApi.download.list();
   };
 
-  const cancel = (taskId: string): void => void window.api.download.cancel(taskId);
+  const cancel = (taskId: string): void => {
+    electronApi?.download.cancel(taskId).catch(() => {});
+  };
 
   const remove = (taskId: string): void => {
     tasks.value = tasks.value.filter((item) => item.taskId !== taskId);
-    void window.api.download.remove(taskId);
+    electronApi?.download.remove(taskId).catch(() => {});
   };
 
   const clearFinished = (): void => {
     tasks.value = tasks.value.filter(
       (item) => item.status === "queued" || item.status === "downloading",
     );
-    void window.api.download.clearFinished();
+    electronApi?.download.clearFinished().catch(() => {});
   };
 
   onScopeDispose(() => {

@@ -43,7 +43,7 @@ watch(
   () => [tab.value, user.isLoggedIn, user.likedPlaylistId] as const,
   ([nextTab, loggedIn, plId]) => {
     if (nextTab !== "online" || !loggedIn || !plId) return;
-    user.ensureLikedPlaylist();
+    user.ensureLikedPlaylist().catch(() => {});
   },
   { immediate: true },
 );
@@ -60,7 +60,7 @@ const handlePlayAll = (): void => {
 
 // 直进 /liked（没先访问 Library 页）时本地库未初始化，需要手动触发
 onMounted(() => {
-  if (!library.initialized) library.load();
+  if (!library.initialized) library.load().catch(() => {});
 });
 
 /** SongList 引用：本地 / 在线两个分支共用同一 ref，因为同时只挂载一个 */

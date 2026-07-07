@@ -289,9 +289,11 @@ export const jellyItemToTrack = (cfg: StreamingServerConfig, item: JellyItem): T
     originalId: item.Id,
     title: item.Name ?? "",
     artists:
-      item.ArtistItems?.map((a) => ({ id: a.Id, name: a.Name })) ??
-      item.Artists?.map((name) => ({ name })) ??
-      [],
+      item.ArtistItems?.length
+        ? item.ArtistItems.map((a) => ({ id: a.Id, name: a.Name }))
+        : item.Artists?.length
+          ? item.Artists.map((name) => ({ name }))
+          : [],
     album: item.Album ? { id: item.AlbumId, name: item.Album } : undefined,
     duration: jellyTicksToMs(item.RunTimeTicks),
     cover,

@@ -17,11 +17,14 @@ const coverSrc = computed(() =>
     : media.track?.coverOriginal || media.track?.cover,
 );
 
-watchEffect(async () => {
+watchEffect(async (onCleanup) => {
   const id = media.track?.id;
   if (!status.isExpanded || status.trackLoading || !id) return;
   if (media.track?.source !== "local" || hdCache.value?.id === id) return;
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
   const r = await window.api.player.getCoverRaw();
+  if (cancelled) return;
   if (media.track?.id !== id || !r.success || !r.data) return;
   hdCache.value = { id, data: r.data };
 });

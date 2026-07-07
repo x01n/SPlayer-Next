@@ -1,6 +1,10 @@
 import type { SettingCategory } from "@/types/settings-schema";
 import ExternalApiPanel from "@/components/settings/custom/ExternalApiPanel.vue";
 import LastfmPanel from "@/components/settings/custom/LastfmPanel.vue";
+import QQMusicLoginPanel from "@/components/settings/custom/QQMusicLoginPanel.vue";
+import SpotifyLoginPanel from "@/components/settings/custom/SpotifyLoginPanel.vue";
+import KugouLoginPanel from "@/components/settings/custom/KugouLoginPanel.vue";
+import BilibiliLoginPanel from "@/components/settings/custom/BilibiliLoginPanel.vue";
 import IconLucideGlobe from "~icons/lucide/globe";
 
 const servicesCategory: SettingCategory = {
@@ -13,7 +17,7 @@ const servicesCategory: SettingCategory = {
         {
           key: "neteaseRealIp",
           type: "switch",
-          binding: { store: "settings", path: "system.system.neteaseRealIp" },
+          binding: { store: "settings", path: "system.neteaseRealIp" },
           defaultValue: false,
         },
       ],
@@ -73,6 +77,7 @@ const servicesCategory: SettingCategory = {
               type: "custom",
               component: LastfmPanel,
               fullWidth: true,
+              hideDescription: true,
               keywords: ["settings.lastfm.connect", "settings.lastfm.disconnect"],
             },
             {
@@ -94,6 +99,20 @@ const servicesCategory: SettingCategory = {
               defaultValue: true,
             },
           ],
+        },
+      ],
+    },
+    {
+      id: "qqmusic",
+      tag: { text: "Beta" },
+      items: [
+        {
+          key: "qqmusicAccount",
+          type: "custom",
+          component: QQMusicLoginPanel,
+          fullWidth: true,
+          hideDescription: true,
+          keywords: ["settings.qqmusic.connect", "settings.qqmusic.disconnect"],
         },
       ],
     },
@@ -138,9 +157,71 @@ const servicesCategory: SettingCategory = {
               type: "custom",
               component: ExternalApiPanel,
               fullWidth: true,
+              hideDescription: true,
               keywords: ["settings.externalApi.endpoint", "settings.externalApi.restart"],
             },
           ],
+        },
+      ],
+    },
+    {
+      id: "kugou",
+      tag: { text: "Beta" },
+      items: [
+        {
+          key: "kugouAccount",
+          type: "custom",
+          component: KugouLoginPanel,
+          fullWidth: true,
+          hideDescription: true,
+          keywords: ["settings.kugou.connect", "settings.kugou.disconnect"],
+        },
+      ],
+    },
+    {
+      id: "bilibili",
+      tag: { text: "Beta" },
+      items: [
+        {
+          key: "bilibiliAccount",
+          type: "custom",
+          component: BilibiliLoginPanel,
+          fullWidth: true,
+          hideDescription: true,
+          keywords: ["settings.bilibili.connect", "settings.bilibili.disconnect"],
+        },
+        {
+          key: "bilibiliHighQualityAudio",
+          type: "switch",
+          binding: { store: "settings", path: "system.bilibili.highQualityAudio" },
+          defaultValue: false,
+        },
+      ],
+    },
+    {
+      id: "spotify",
+      items: [
+        {
+          key: "spotifyAccount",
+          type: "custom",
+          component: SpotifyLoginPanel,
+          fullWidth: true,
+          hideDescription: true,
+          keywords: ["settings.spotifyLogin.login", "settings.spotifyLogin.logout"],
+        },
+        {
+          key: "spotifyClientId",
+          type: "text",
+          binding: { store: "settings", path: "spotify.clientId" },
+          defaultValue: "",
+          placeholderKey: "settings.spotifyClientId.placeholder",
+        },
+        {
+          key: "spotifyClientSecret",
+          type: "text",
+          binding: { store: "settings", path: "spotify.clientSecret" },
+          defaultValue: "",
+          placeholderKey: "settings.spotifyClientSecret.placeholder",
         },
       ],
     },

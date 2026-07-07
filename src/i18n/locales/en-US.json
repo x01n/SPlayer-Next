@@ -98,6 +98,8 @@
     "prev": "Previous",
     "next": "Next",
     "search": "Search",
+    "add": "Add",
+    "or": "Or",
     "loading": "Loading",
     "noData": "No data",
     "noMore": "No more ~",
@@ -324,13 +326,77 @@
     "cookiePlaceholder": "Paste cookie, must contain MUSIC_U=xxx;",
     "cookieInvalid": "Invalid cookie. MUSIC_U is required.",
     "cookieConfirm": "Sign in",
+    "cookieEmpty": "Cookie cannot be empty",
     "success": "Signed in",
     "failed": "Sign-in failed, please try again",
     "unknownUser": "Unknown user",
+    "switchAccount": "Switch Account",
     "logout": "Sign out",
     "logoutConfirmTitle": "Sign out",
     "logoutConfirmDesc": "Sign out of the current account?",
-    "logoutDone": "Signed out"
+    "logoutDone": "Signed out",
+    "spotify": {
+      "login": "Sign in to Spotify",
+      "logout": "Sign out of Spotify",
+      "notConfigured": "Please enter Spotify Client ID first",
+      "success": "Signed in to Spotify",
+      "failed": "Spotify sign-in failed, please try again"
+    },
+    "netease": {
+      "mode": {
+        "qr": "QR",
+        "email": "Email",
+        "phonePwd": "Phone password",
+        "captcha": "Code",
+        "cookie": "Cookie"
+      },
+      "login": "Sign in",
+      "emailPlaceholder": "Email",
+      "phonePlaceholder": "Phone number",
+      "passwordPlaceholder": "Password",
+      "captchaPlaceholder": "Verification code",
+      "sendCaptcha": "Send code",
+      "captchaCountdown": "{seconds}s",
+      "emailEmpty": "Please enter email and password",
+      "phonePasswordEmpty": "Please enter phone number and password",
+      "phoneEmpty": "Please enter phone number",
+      "captchaEmpty": "Please enter phone number and verification code",
+      "captchaSent": "Verification code sent",
+      "captchaFailed": "Failed to send verification code",
+      "securityTip": "Account credentials are stored locally with the OS secure store and are not exposed to WebUI or plugins.",
+      "cookieSecurityTip": "Cookie sign-in writes only to main-process local config; the renderer does not persist cookie content."
+    },
+    "platform": {
+      "netease": "NetEase Cloud",
+      "qqmusic": "QQ Music",
+      "spotify": "Spotify",
+      "bilibili": "Bilibili",
+      "kugou": "Kugou Music"
+    },
+    "alreadyLoggedIn": "Signed in as {name}",
+    "qqmusicLogin": "Sign in to QQ Music",
+    "spotifyLogin": "Sign in to Spotify",
+    "kugouLogin": "Sign in to Kugou Music",
+    "notLoggedIn": "Not signed in",
+    "loginOtherPlatform": "Sign in to another platform",
+    "manageAccounts": "Manage Accounts",
+    "bilibili": {
+      "mode": {
+        "qr": "QR Code",
+        "pwd": "Password",
+        "cookie": "Cookie"
+      },
+      "qrTipWaiting": "Open Bilibili app and scan the QR code",
+      "qrTipScanned": "Scanned, please confirm in the app",
+      "qrTipExpired": "QR code expired, click to refresh",
+      "qrTipDone": "Signed in",
+      "qrTipUnknown": "Unknown state, please retry",
+      "pwdLogin": "Sign in",
+      "pwdEmpty": "Please enter username and password",
+      "usernamePlaceholder": "Phone / Email",
+      "passwordPlaceholder": "Password"
+    },
+    "bilibiliLogin": "Sign in to Bilibili via Browser"
   },
   "search": {
     "title": "Search",
@@ -344,6 +410,9 @@
       "albums": "Albums",
       "artists": "Artists",
       "playlists": "Playlists"
+    },
+    "platform": {
+      "bilibili": "Bilibili"
     }
   },
   "streaming": {
@@ -427,6 +496,18 @@
       "hint": "Positive values advance lyrics, in milliseconds"
     },
     "lyricCredit": "Lyrics by",
+    "lyricSearch": {
+      "title": "Search Lyrics",
+      "empty": "No lyrics available",
+      "search": "Search Lyrics",
+      "apply": "Apply",
+      "allPlatforms": "All platforms",
+      "songNamePlaceholder": "Enter song title",
+      "artistPlaceholder": "Enter artist",
+      "noResults": "No matching lyrics found",
+      "fetchFailed": "Failed to fetch lyrics",
+      "searchFailed": "Search failed"
+    },
     "copyLyric": {
       "title": "Copy Lyrics",
       "contentLabel": "Content to copy",
@@ -446,6 +527,18 @@
       "fileSuffix": "Lyrics",
       "exportFailed": "Failed to export image",
       "empty": "Nothing to copy"
+    },
+    "videoBg": {
+      "name": "Video Background",
+      "title": "Video Background for \"{name}\"",
+      "searchPlaceholder": "Search Bilibili videos",
+      "urlPlaceholder": "Paste video URL",
+      "useUrl": "Use URL",
+      "custom": "Custom",
+      "saved": "Video background saved",
+      "deleted": "Video background removed",
+      "urlInvalid": "Only http(s) or cache:// video URLs are supported",
+      "noResults": "No matching videos found"
     },
     "repeatMode": {
       "list": "Repeat all",
@@ -491,6 +584,7 @@
       "download": "Download Song",
       "deleteFile": "Delete File",
       "searchSame": "Search by Name",
+      "setVideoBg": "Set Video Background",
       "more": "More",
       "copyTitle": "Copy Title",
       "copyId": "Copy Song ID",
@@ -708,6 +802,8 @@
       "musicSpectrum": "Music Spectrum",
       "discord": "Discord RPC",
       "lastfm": "Last.fm",
+      "qqmusic": "QQ Music",
+      "kugou": "Kugou Music",
       "externalApi": "External API",
       "systemConfig": "System",
       "pluginManage": "Import Plugins",
@@ -1337,7 +1433,10 @@
       "description": "Background type of the full-screen player",
       "blur": "Blur",
       "solid": "Solid",
-      "animation": "Fluid"
+      "animation": "Fluid",
+      "video": "Video Background",
+      "customImage": "Custom Image",
+      "customVideo": "Custom Video"
     },
     "playerBgFlowSpeed": {
       "label": "Flow Speed",
@@ -1517,6 +1616,29 @@
         "failed": "Connection failed, please retry",
         "disconnected": "Disconnected from Last.fm"
       }
+    },
+    "kugou": {
+      "connect": "Sign in",
+      "disconnect": "Sign out",
+      "connectedAs": "Signed in: {name}",
+      "notConnected": "Not signed in to Kugou Music",
+      "connectHint": "Click sign in and enter your cookie",
+      "cookieDesc": "After signing in to Kugou Music in your browser, open DevTools → Application → Cookies, copy all cookies and paste them into the input box below"
+    },
+    "qqmusic": {
+      "connect": "Sign in",
+      "disconnect": "Sign out",
+      "connectedAs": "Signed in: {name}",
+      "notConnected": "Not signed in to QQ Music",
+      "connectHint": "Clicking sign in opens the QQ Music web login window"
+    },
+    "qqmusicAccount": {
+      "label": "QQ Music Account",
+      "description": "Sign in to QQ Music"
+    },
+    "spotifyAccount": {
+      "label": "Spotify Account",
+      "description": "Spotify account settings"
     },
     "rememberWindowState": {
       "label": "Remember Window State",
@@ -1799,12 +1921,17 @@
       "label": "Size Limit",
       "description": "When the limit is reached, entries are evicted automatically; ∞ means unlimited"
     },
+    "offlineCacheFallback": {
+      "label": "Offline Cache Fallback",
+      "description": "When offline, prefer any cached quality version; fail if no cache exists"
+    },
     "downloadEnabled": {
       "label": "Enable Downloads"
     },
     "downloadDir": {
       "label": "Download Folder",
-      "change": "Change"
+      "change": "Change",
+      "description": "Choose where downloaded files are saved"
     },
     "downloadQuality": {
       "label": "Download Quality",
@@ -1903,6 +2030,73 @@
     "listenTogetherAllowAnonymousChat": {
       "label": "Allow Anonymous Chat",
       "description": "Allow unauthenticated users to chat"
+    },
+    "spotifyClientId": {
+      "label": "Spotify Client ID",
+      "description": "Spotify Developer Dashboard Client ID, used for OAuth login",
+      "placeholder": "Enter Spotify Client ID"
+    },
+    "spotifyClientSecret": {
+      "label": "Spotify Client Secret",
+      "description": "Spotify Developer Dashboard Client Secret, used for Client Credentials search",
+      "placeholder": "Enter Spotify Client Secret"
+    },
+    "spotifyLogin": {
+      "label": "Spotify Login",
+      "description": "Sign in to Spotify via OAuth to access your playlists and library",
+      "login": "Sign in to Spotify",
+      "logout": "Sign out of Spotify",
+      "loggedInAs": "Signed in as {name}",
+      "notLoggedIn": "Not signed in to Spotify"
+    },
+    "playerBgCustomImage": {
+      "label": "Custom Image Background",
+      "description": "Pick a local image as the full-screen player background"
+    },
+    "playerBgCustomVideo": {
+      "label": "Custom Video Background",
+      "description": "Pick a local video as the full-screen player background"
+    },
+    "playerBgFile": {
+      "select": "Choose file",
+      "replace": "Replace file",
+      "clear": "Clear file"
+    },
+    "bilibiliAccount": {
+      "label": "Bilibili Account",
+      "description": "Sign in to Bilibili"
+    },
+    "kugouAccount": {
+      "label": "Kugou Account",
+      "description": "Sign in to Kugou Music"
+    },
+    "lastfmAccount": {
+      "label": "Last.fm Account",
+      "description": "Connect your Last.fm account to scrobble and sync loves"
+    },
+    "pluginImport": {
+      "label": "Import Plugin",
+      "description": "Import a plugin from a local file or URL"
+    },
+    "pluginList": {
+      "label": "Plugin List",
+      "description": "Manage installed plugins: enable, disable or uninstall"
+    },
+    "streamingServerList": {
+      "label": "Streaming Servers",
+      "description": "Manage configured streaming servers, test connections and enable"
+    },
+    "bilibili": {
+      "connectedAs": "Signed in as {name}",
+      "notConnected": "Not signed in to Bilibili",
+      "connectHint": "Supports QR code, password, Cookie or browser login",
+      "cookieDesc": "Paste your Bilibili cookie to sign in"
+    },
+    "kugou": {
+      "connectedAs": "Signed in as {name}",
+      "notConnected": "Not signed in to Kugou Music",
+      "connectHint": "Click to open the Kugou Music login window",
+      "cookieDesc": "Paste your Kugou Music cookie to sign in"
     }
   },
   "collection": {
@@ -1957,6 +2151,7 @@
     "FILE_NOT_SELECTED": "No file selected",
     "NETWORK_ERROR": "Failed to reach audio source, check network or try another",
     "NETWORK_TIMEOUT": "Audio source timed out, check network or try another",
+    "OFFLINE": "You are offline, unable to resolve online audio source",
     "URL_RESOLVE_FAILED": "Failed to get playback URL",
     "NO_PLUGIN_AVAILABLE": "No plugin available for this platform",
     "SCAN_NO_DIRS": "No scan directories configured",
@@ -1998,6 +2193,7 @@
         "error": "Connection Error"
       },
       "leave": "Leave",
+      "nowPlaying": "Now Playing",
       "members": "{count} online",
       "unknownArtist": "Unknown Artist",
       "createRoom": "Create Room",
@@ -2043,6 +2239,8 @@
       "addCurrentSong": "Add Current Song",
       "searchSongPlaceholder": "Search for songs...",
       "songAdded": "Song added",
+      "addSongFailed": "Failed to add song",
+      "removeSongFailed": "Failed to remove song",
       "emptyQueue": "No songs yet, add some!",
       "noPlayingTrack": "No song currently playing",
       "today": "Today",
@@ -2063,7 +2261,8 @@
         "replyingTo": "Replying to",
         "quoted": "quoted",
         "mentionedYou": "mentioned you",
-        "truncated": "Message too long, truncated"
+        "truncated": "Message too long, truncated",
+        "messageTooLong": "Message exceeds maximum length limit"
       }
     }
   }

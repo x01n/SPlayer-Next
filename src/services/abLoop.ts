@@ -10,6 +10,9 @@
 import { useStatusStore } from "@/stores/status";
 import * as player from "@/core/player";
 
+/** 是否正在回跳（防止 A/B 接近时反复 seek） */
+let isSeekingBack = false;
+
 /** 设 A 点（毫秒）；自动校验 B 关系，非法则 disable */
 export const setA = (positionMs: number): void => {
   const { abLoop } = useStatusStore();
@@ -70,6 +73,7 @@ export const reset = (): void => {
   abLoop.enable = false;
   abLoop.pointA = null;
   abLoop.pointB = null;
+  isSeekingBack = false;
 };
 
 /**
@@ -81,7 +85,20 @@ export const checkLoop = (positionMs: number): void => {
   if (!abLoop.enable) return;
   if (abLoop.pointA === null || abLoop.pointB === null) return;
   if (abLoop.pointB <= abLoop.pointA) return;
+
+  // 如果正在回跳，等待 position 回落到 B 以下再解除标志
+  if (isSeekingBack) {
+    if (positionMs < abLoop.pointB) {
+      isSeekingBack = false;
+    }
+    return;
+  }
+
   if (positionMs >= abLoop.pointB) {
-    player.seek(abLoop.pointA).catch(() => {});
+    isSeekingBack = true;
+    player.seek(abLoop.pointA).catch((err) => {
+      console.warn("[abLoop] seek back to A failed:", err);
+      isSeekingBack = false;
+    });
   }
 };

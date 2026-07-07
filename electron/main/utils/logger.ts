@@ -42,12 +42,11 @@ export const initLogger = (): void => {
   // 确保日志目录存在
   if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
 
-  // 按日期命名日志文件
-  const dateString = new Date().toISOString().slice(0, 10);
-  const logFilePath = path.join(logsDir, `${dateString}.log`);
-
-  // 文件输出配置
-  log.transports.file.resolvePathFn = () => logFilePath;
+  // 文件输出配置（按日期动态命名）
+  log.transports.file.resolvePathFn = () => {
+    const dateString = new Date().toISOString().slice(0, 10);
+    return path.join(logsDir, `${dateString}.log`);
+  };
   log.transports.file.maxSize = 2 * 1024 * 1024; // 2MB 单文件上限
   log.transports.file.level = "info";
 

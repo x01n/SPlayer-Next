@@ -39,6 +39,10 @@ export const useStatusStore = defineStore(
     const commentsOpen = ref(false);
     /** 评论弹窗当前歌曲 */
     const commentsTrack = shallowRef<Track | null>(null);
+    /** 视频背景弹窗状态 */
+    const videoBgDialogOpen = ref(false);
+    /** 视频背景弹窗当前歌曲 */
+    const videoBgDialogTrack = shallowRef<Track | null>(null);
     /** 全屏播放器是否展示歌词 */
     const showLyric = ref(true);
     /** 当前播放索引 */
@@ -102,6 +106,18 @@ export const useStatusStore = defineStore(
       commentsOpen.value = true;
     };
 
+    /** 打开指定歌曲视频背景配置 */
+    const showVideoBgDialog = (track: Track): void => {
+      videoBgDialogTrack.value = track;
+      videoBgDialogOpen.value = true;
+    };
+
+    /** 关闭视频背景配置弹窗 */
+    const closeVideoBgDialog = (): void => {
+      videoBgDialogOpen.value = false;
+      videoBgDialogTrack.value = null;
+    };
+
     return {
       state,
       position,
@@ -119,6 +135,9 @@ export const useStatusStore = defineStore(
       searchOpen,
       commentsOpen,
       commentsTrack,
+      videoBgDialogOpen,
+      videoBgDialogTrack,
+      showVideoBgDialog,
       showLyric,
       outputDevices,
       playIndex,
@@ -138,6 +157,7 @@ export const useStatusStore = defineStore(
       settingsCategory,
       currentTrack,
       showComments,
+      closeVideoBgDialog,
     };
   },
   {

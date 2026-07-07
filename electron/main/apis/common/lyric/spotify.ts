@@ -5,7 +5,7 @@
  * 返回空实现，建议通过其他平台（netease/qqmusic/kugou）匹配歌词。
  */
 
-import type { LyricMatchResult } from "@shared/types/lyrics";
+import type { LyricMatchResult, LyricSearchCandidate } from "@shared/types/lyrics";
 import type { Track } from "@shared/types/player";
 
 /**
@@ -14,6 +14,13 @@ import type { Track } from "@shared/types/player";
  */
 export const getByPlatformId = async (_id: string): Promise<LyricMatchResult | null> => {
   return null;
+};
+
+/** 按 Track 元数据搜索候选（不支持）
+ * @param _track 歌曲信息
+ */
+export const searchCandidates = async (_track: Track): Promise<LyricSearchCandidate[]> => {
+  return [];
 };
 
 /**

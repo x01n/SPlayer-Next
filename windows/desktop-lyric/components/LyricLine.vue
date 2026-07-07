@@ -22,7 +22,7 @@ const props = defineProps<{
 
 const containerRef = ref<HTMLElement | null>(null);
 const contentRef = ref<HTMLElement | null>(null);
-const wordRefs: HTMLSpanElement[] = [];
+const wordRefs: (HTMLSpanElement | undefined)[] = [];
 /** 内容超出容器的像素量 */
 const overflowPx = ref(0);
 
@@ -98,7 +98,7 @@ const setWordRef = (el: Element | { $el?: Element } | null, index: number): void
   if (target instanceof HTMLSpanElement) {
     wordRefs[index] = target;
   } else {
-    delete wordRefs[index];
+    wordRefs[index] = undefined;
   }
 };
 
@@ -167,6 +167,7 @@ watch(
   () => [props.wordByWord, props.line, overflowPx.value],
   () => {
     resetRenderCache();
+    nextTick(measure);
     if (needsRaf()) {
       startRenderLoop();
     } else {
@@ -178,7 +179,16 @@ watch(
 
 /** 字号 CSS transition 结束后重测 */
 const onTransitionEnd = (event: TransitionEvent): void => {
+  if (event.target !== containerRef.value) return;
   if (event.propertyName === "font-size") measure();
+};
+
+const onVisibilityChange = (): void => {
+  if (document.hidden) {
+    stopRenderLoop();
+  } else if (needsRaf()) {
+    startRenderLoop();
+  }
 };
 
 onMounted(() => {
@@ -188,6 +198,7 @@ onMounted(() => {
     resizeObs.observe(containerRef.value);
     containerRef.value.addEventListener("transitionend", onTransitionEnd);
   }
+  document.addEventListener("visibilitychange", onVisibilityChange);
   startRenderLoop();
 });
 
@@ -196,6 +207,7 @@ onBeforeUnmount(() => {
   resizeObs?.disconnect();
   resizeObs = null;
   containerRef.value?.removeEventListener("transitionend", onTransitionEnd);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 </script>
 

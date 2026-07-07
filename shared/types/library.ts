@@ -5,7 +5,7 @@ import type { TrackTags, TagEditRequest, TagWriteOutcome } from "./tagEditor";
 export interface AlbumSummary {
   name: string;
   cover?: string;
-  artist: string;
+  artist?: string;
   trackCount: number;
 }
 

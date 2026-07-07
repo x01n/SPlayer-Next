@@ -105,16 +105,48 @@ export type LyricMatchResponse =
 /** TTML 抓取 IPC 响应 */
 export type LyricTTMLResponse = { ok: true; data: string | null } | { ok: false; error: string };
 
+/** 歌词搜索候选 */
+export interface LyricSearchCandidate {
+  platform: Platform;
+  id: string;
+  extId?: string;
+  title: string;
+  artists: string[];
+  album?: string;
+  duration?: number;
+  cover?: string;
+  extra?: LyricMatchExtra;
+}
+
+/** 歌词搜索候选响应 */
+export type LyricSearchCandidatesResponse =
+  | { ok: true; data: LyricSearchCandidate[] }
+  | { ok: false; error: string };
+
+/**
+ * 手动匹配提交参数
+ */
+export interface LyricManualMatchCommit {
+  fingerprint: string;
+  platform: Platform;
+  platformId: string;
+  extra?: LyricMatchExtra;
+}
+
 /** 渲染端歌词匹配入口 */
 export interface LyricsApi {
   /** 按 id 直取某平台歌词 */
   matchById: (platform: Platform, id: string) => Promise<LyricMatchResponse>;
   /** 按 Track 元数据在某平台模糊搜索歌词 */
   matchByQuery: (platform: Platform, track: Track) => Promise<LyricMatchResponse>;
+  /** 按 Track 元数据在各平台搜索歌词候选 */
+  searchCandidates: (track: Track) => Promise<LyricSearchCandidatesResponse>;
   /** 抓取 AMLL TTML DB 的 TTML 歌词，仅 NCM/QM 适用 */
   fetchTTMLOverlay: (track: Track, platform: "netease" | "qqmusic") => Promise<LyricTTMLResponse>;
   /** 在本地 TTML 歌词库中按元信息匹配，命中返回 TTML 原文 */
   matchLocalTTML: (track: Track) => Promise<LyricTTMLResponse>;
   /** 弹出目录选择器，返回所选本地 TTML 歌词库目录 */
   pickLyricRepoDir: () => Promise<string | null>;
+  /** 提交手动匹配结果，写入 lyric_match_cache */
+  commitManualMatch: (commit: LyricManualMatchCommit) => Promise<void>;
 }

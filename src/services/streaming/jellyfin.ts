@@ -164,7 +164,7 @@ export const getStreamUrl = async (
     UserId: userId,
     DeviceId: deviceId(cfg),
     Container: "mp3,m4a|aac,m4a|alac,m4b|aac,flac,webma|opus,webm|opus,ogg|opus,ogg|vorbis,wav,oga",
-    PlaySessionId: playSessionId ?? crypto.randomUUID(),
+    PlaySessionId: playSessionId || crypto.randomUUID(),
     api_key: cfg.accessToken!,
     StartTimeTicks: "0",
     EnableRedirection: "true",
@@ -400,7 +400,8 @@ export const getLyrics = async (
     return lines
       .map((l) => `${formatLrcTimestamp(Math.floor((l.Start ?? 0) / 10000))}${l.Text ?? ""}`)
       .join("\n");
-  } catch {
+  } catch (err) {
+    console.warn(`[jellyfin] 获取歌词 ${originalId} 失败:`, err);
     return null;
   }
 };

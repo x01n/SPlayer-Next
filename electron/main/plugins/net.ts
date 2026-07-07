@@ -47,7 +47,10 @@ export const fetchScript = async (url: string): Promise<string> => {
   return new TextDecoder("utf-8").decode(buf);
 };
 
-/** 拉取插件市场索引 */
+/**
+ * 拉取插件市场索引
+ * @returns 市场插件列表
+ */
 export const fetchMarket = async (): Promise<MarketPlugin[]> => {
   const resp = await net.fetch(PLUGIN_REGISTRY_URL, {
     method: "GET",
@@ -55,7 +58,12 @@ export const fetchMarket = async (): Promise<MarketPlugin[]> => {
     signal: AbortSignal.timeout(INSTALL_URL_TIMEOUT),
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const data = JSON.parse(await resp.text()) as { plugins?: MarketPlugin[] };
+  let data: { plugins?: MarketPlugin[] };
+  try {
+    data = JSON.parse(await resp.text()) as { plugins?: MarketPlugin[] };
+  } catch {
+    throw new Error("PLUGIN_MARKET_INVALID_JSON");
+  }
   return Array.isArray(data.plugins)
     ? data.plugins.filter((item) => item?.id && item?.updateUrl)
     : [];
@@ -95,8 +103,8 @@ export const hostRequest = async (
   if (opts.body != null) {
     if (typeof opts.body === "string") body = opts.body;
     else if (opts.body instanceof ArrayBuffer) body = opts.body;
-    else {
-      const u8 = opts.body as Uint8Array;
+    else if (ArrayBuffer.isView(opts.body) && opts.body instanceof Uint8Array) {
+      const u8 = opts.body;
       body = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
     }
   }

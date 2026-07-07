@@ -13,6 +13,7 @@ import type {
   ListenTogetherSearchShare,
   ListenTogetherReaction,
   ListenTogetherAudioSource,
+  ListenTogetherSyncState,
 } from "@shared/types/listenTogether";
 import type { Track } from "@shared/types/player";
 import { useMediaStore } from "@/stores/media";
@@ -70,6 +71,10 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
 
   /** 同步操作竞态 token */
   let syncToken = 0;
+  /** 提案定时器列表，用于 resetState 时统一清理 */
+  const proposalTimers: ReturnType<typeof setTimeout>[] = [];
+  /** 反应定时器列表，用于 resetState 时统一清理 */
+  const reactionTimers: ReturnType<typeof setTimeout>[] = [];
   /** 自动同步 watcher 清理函数列表 */
   let autoSyncUnsubscribers: Array<() => void> = [];
   /** 上次同步的播放位置 */
@@ -107,12 +112,17 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       `[ListenTogether] 开始创建房间, name=${name}, neteaseUserId=${neteaseUserId ?? "null"}, roomName=${roomName ?? "default"}`,
     );
     try {
-      const effectiveAuthKey = authKey || (await window.api.config.get("listenTogether.authKey"));
+      const effectiveAuthKey =
+        authKey || ((await window.api.config.get("listenTogether.authKey")) as string | undefined);
+      if (!effectiveAuthKey) {
+        console.log("[ListenTogether] 创建房间失败: 未获取到有效鉴权密钥");
+        return false;
+      }
       console.log("[ListenTogether] 已获取 authKey");
       const result = await window.api.listenTogether.createRoom(
         name,
         neteaseUserId,
-        effectiveAuthKey as string,
+        effectiveAuthKey,
         roomName,
       );
       if (!result.ok || !result.room) {
@@ -129,34 +139,50 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
         `[ListenTogether] 房间创建成功, roomId=${roomId.value}, roomKey=${roomKey.value}`,
       );
 
-      // 房主也需要通过WS加入自己的房间
-      const port = (await window.api.config.get("externalApi.port")) || 14558;
-      const allowLan = (await window.api.config.get("externalApi.allowLan")) || false;
+      const port = (await window.api.config.get("externalApi.port")) as number | undefined;
+      const allowLan = (await window.api.config.get("externalApi.allowLan")) as boolean | undefined;
+      const effectivePort = port ?? 14558;
       const url = allowLan ? serverUrl.value : "127.0.0.1";
-      serverPort.value = port as number;
-      console.log(`[ListenTogether] 房主准备连接WebSocket, url=${url}, port=${port}`);
+      serverPort.value = effectivePort;
+      serverUrl.value = url;
+      setupListeners();
+      console.log(`[ListenTogether] 房主准备连接WebSocket, url=${url}, port=${effectivePort}`);
 
-      // 使用hostToken作为roomKey加入WS
       const success = await lt.connect(
         url,
-        port as number,
+        effectivePort,
         roomId.value,
         hostToken.value,
         name,
         neteaseUserId,
       );
       if (success) {
-        connectionState.value = "connected";
-        setupListeners();
+        memberId.value = lt.getMemberId() ?? "";
+        connectionState.value = lt.getConnectionState();
+        const currentRoom = lt.getCurrentRoom();
+        if (currentRoom) {
+          room.value = {
+            ...currentRoom,
+            members: currentRoom.members.map((m) => ({ ...m })),
+            currentTrack: currentRoom.currentTrack ? { ...currentRoom.currentTrack } : null,
+            queue: currentRoom.queue ? currentRoom.queue.map((q) => ({ ...q })) : [],
+          };
+          controllerId.value = currentRoom.controllerId;
+          queue.value = currentRoom.queue ?? [];
+        }
         lt.startHeartbeat();
         startAutoSync();
         console.log("[ListenTogether] 房主WebSocket连接成功, 已启动自动同步");
       } else {
-        console.log("[ListenTogether] 房主WebSocket连接失败");
+        console.log("[ListenTogether] 房主WebSocket连接失败，重置状态");
+        resetState();
+        lt.clearAllListeners();
       }
       return success;
     } catch (err) {
       console.error("[ListenTogether] 创建房间异常:", err);
+      resetState();
+      lt.clearAllListeners();
       return false;
     }
   };
@@ -198,15 +224,30 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     roomId.value = id;
     roomKey.value = key;
     nickname.value = name;
+    isHost.value = false;
+    setupListeners();
 
     const success = await lt.connect(url, port, id, key, name, neteaseUserId);
     if (success) {
-      isHost.value = false;
-      setupListeners();
+      memberId.value = lt.getMemberId() ?? "";
+      connectionState.value = lt.getConnectionState();
+      const currentRoom = lt.getCurrentRoom();
+      if (currentRoom) {
+        room.value = {
+          ...currentRoom,
+          members: currentRoom.members.map((m) => ({ ...m })),
+          currentTrack: currentRoom.currentTrack ? { ...currentRoom.currentTrack } : null,
+          queue: currentRoom.queue ? currentRoom.queue.map((q) => ({ ...q })) : [],
+        };
+        controllerId.value = currentRoom.controllerId;
+        queue.value = currentRoom.queue ?? [];
+      }
       lt.startHeartbeat();
-      console.log("[ListenTogether] 加入房间成功, 已设置监听器并启动心跳");
+      console.log("[ListenTogether] 加入房间成功, 已启动心跳");
     } else {
-      console.log("[ListenTogether] 加入房间失败");
+      console.log("[ListenTogether] 加入房间失败，重置状态");
+      resetState();
+      lt.clearAllListeners();
     }
     return success;
   };
@@ -279,6 +320,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
 
   /** 设置监听器 */
   const setupListeners = (): void => {
+    // 先清除旧监听器，避免重复订阅（connect() 调用 disconnect(true) 保留监听器时可能残留）
+    lt.clearAllListeners();
+
     lt.onStateChange((state) => {
       console.log(`[ListenTogether] WebSocket状态变化: ${connectionState.value} -> ${state}`);
       connectionState.value = state;
@@ -294,11 +338,40 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       console.log(`[ListenTogether] 连接已就绪, memberId=${memberId.value}`);
     }
 
+    // 若连接已就绪但 joined 消息到达时监听器尚未注册，补同步房间数据
+    // 避免 connect() 清空监听器导致 UI 无法渲染房间
+    if (lt.getConnectionState() === "connected") {
+      connectionState.value = "connected";
+      const currentRoom = lt.getCurrentRoom();
+      if (currentRoom) {
+        // 深拷贝房间数据，确保响应式更新可靠
+        room.value = {
+          ...currentRoom,
+          members: currentRoom.members.map((m) => ({ ...m })),
+          currentTrack: currentRoom.currentTrack ? { ...currentRoom.currentTrack } : null,
+          queue: currentRoom.queue ? currentRoom.queue.map((q) => ({ ...q })) : [],
+        };
+        controllerId.value = currentRoom.controllerId;
+        queue.value = currentRoom.queue ?? [];
+        console.log(
+          `[ListenTogether] 房间数据补同步: roomId=${currentRoom.id}, memberCount=${currentRoom.members.length}`,
+        );
+      }
+    }
+
     lt.onRoomUpdate((updatedRoom) => {
       console.log(
         `[ListenTogether] 房间信息更新, controllerId=${updatedRoom?.controllerId ?? "null"}, memberCount=${updatedRoom?.members.length ?? 0}`,
       );
-      room.value = updatedRoom;
+      // shallowRef 对同一引用不会触发更新，深拷贝确保 UI 刷新
+      room.value = updatedRoom
+        ? {
+            ...updatedRoom,
+            members: updatedRoom.members.map((m) => ({ ...m })),
+            currentTrack: updatedRoom.currentTrack ? { ...updatedRoom.currentTrack } : null,
+            queue: updatedRoom.queue ? updatedRoom.queue.map((q) => ({ ...q })) : [],
+          }
+        : null;
       if (updatedRoom) {
         controllerId.value = updatedRoom.controllerId;
         queue.value = updatedRoom.queue ?? [];
@@ -309,6 +382,15 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       console.log(
         `[ListenTogether] 收到播放同步, trackId=${syncState.track?.id ?? "null"}, position=${syncState.position}, isPlaying=${syncState.isPlaying}, senderId=${syncState.senderId}`,
       );
+      // 更新 shallowRef 的 room，触发 UI 响应式
+      if (room.value) {
+        room.value = {
+          ...room.value,
+          currentTrack: syncState.track,
+          position: syncState.position,
+          state: syncState.isPlaying ? "playing" : "paused",
+        };
+      }
       // 非房主接收同步状态时执行播放器操作
       if (!isHost.value) {
         void executeSync(syncState);
@@ -319,12 +401,30 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       console.log(
         `[ListenTogether] 收到聊天消息, sender=${message.senderNickname}, content=${message.content}`,
       );
+      // 去重：检查是否已存在相同 id
+      if (chatMessages.value.some((m) => m.id === message.id)) {
+        console.log(`[ListenTogether] 聊天消息已存在，跳过: id=${message.id}`);
+        return;
+      }
       chatMessages.value.push(message);
+      // 限制聊天消息数量，避免内存无限增长
+      if (chatMessages.value.length > 500) {
+        chatMessages.value = chatMessages.value.slice(-500);
+      }
     });
 
     lt.onChatHistory((messages) => {
       console.log(`[ListenTogether] 收到聊天历史, 共${messages.length}条消息`);
-      chatMessages.value = messages;
+      // 合并历史与已有消息，按 seqId 去重后排序
+      const existingMap = new Map(chatMessages.value.map((m) => [m.id, m]));
+      for (const msg of messages) {
+        if (!existingMap.has(msg.id)) {
+          existingMap.set(msg.id, msg);
+        }
+      }
+      const merged = Array.from(existingMap.values());
+      merged.sort((a, b) => (a.seqId ?? 0) - (b.seqId ?? 0));
+      chatMessages.value = merged;
     });
 
     lt.onProposal((proposal) => {
@@ -334,9 +434,12 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       activeProposals.value.push(proposal);
       // 如果是房主收到的提案且已执行，立即清理
       if (proposal.executed) {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+          const idx = proposalTimers.indexOf(timer);
+          if (idx !== -1) proposalTimers.splice(idx, 1);
           activeProposals.value = activeProposals.value.filter((p) => p.id !== proposal.id);
         }, 3000);
+        proposalTimers.push(timer);
       }
     });
 
@@ -362,14 +465,20 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     lt.onMemberJoined((member) => {
       console.log(`[ListenTogether] 成员加入, id=${member.id}, name=${member.nickname}`);
       if (room.value && !room.value.members.find((m) => m.id === member.id)) {
-        room.value.members.push(member);
+        // 深拷贝新成员后再推入，避免引用污染
+        room.value.members.push({ ...member });
+        // shallowRef 不监听内部属性，重新赋值触发响应式更新
+        room.value = { ...room.value, members: [...room.value.members] };
       }
     });
 
     lt.onMemberLeft((memberId) => {
       console.log(`[ListenTogether] 成员离开, id=${memberId}`);
       if (room.value) {
-        room.value.members = room.value.members.filter((m) => m.id !== memberId);
+        const filtered = room.value.members.filter((m) => m.id !== memberId);
+        if (filtered.length !== room.value.members.length) {
+          room.value = { ...room.value, members: filtered };
+        }
       }
     });
 
@@ -416,11 +525,14 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       );
       reactions.value.push(reaction);
       // 3秒后自动移除旧反应
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        const idx = reactionTimers.indexOf(timer);
+        if (idx !== -1) reactionTimers.splice(idx, 1);
         reactions.value = reactions.value.filter(
           (r) => r.timestamp !== reaction.timestamp || r.senderId !== reaction.senderId,
         );
       }, 3000);
+      reactionTimers.push(timer);
     });
 
     lt.onBestAudioSource((source) => {
@@ -522,14 +634,10 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     lastSyncPositionTime = 0;
   };
 
-  /** 执行同步状态（非房主） */
-  const executeSync = async (syncState: {
-    track: Track | null;
-    position: number;
-    isPlaying: boolean;
-    sendTimestamp: number;
-    senderId: string;
-  }): Promise<void> => {
+  /** 执行同步状态（非房主）
+   * @param syncState - 同步状态
+   */
+  const executeSync = async (syncState: ListenTogetherSyncState): Promise<void> => {
     const myToken = ++syncToken;
     const media = useMediaStore();
 
@@ -630,10 +738,11 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
   /** 发送队列操作
    * @param action - 操作类型
    * @param payload - 操作数据
+   * @returns 是否发送成功
    */
-  const sendQueueAction = async (action: string, payload: unknown): Promise<void> => {
+  const sendQueueAction = async (action: string, payload: unknown): Promise<boolean> => {
     console.log(`[ListenTogether] 发送队列操作: action=${action}`);
-    await lt.sendQueue(action, payload);
+    return lt.sendQueue(action, payload);
   };
 
   /** 发送搜索共享
@@ -672,6 +781,10 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
   const resetState = (): void => {
     console.log("[ListenTogether] 重置状态");
     stopAutoSync();
+    for (const timer of proposalTimers) clearTimeout(timer);
+    proposalTimers.length = 0;
+    for (const timer of reactionTimers) clearTimeout(timer);
+    reactionTimers.length = 0;
     connectionState.value = "idle";
     room.value = null;
     chatMessages.value = [];

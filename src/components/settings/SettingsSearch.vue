@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { settingsSchema } from "@/settings/schema";
+import type { SettingCategory, SettingItem, SettingSection } from "@/types/settings-schema";
 
 const emit = defineEmits<{
   select: [categoryId: string, itemKey: string];
@@ -26,22 +27,32 @@ const results = computed<SearchResult[]>(() => {
   const q = query.value.trim().toLowerCase();
   if (!q) return [];
   const out: SearchResult[] = [];
+
+  const pushIfMatch = (cat: SettingCategory, sec: SettingSection, item: SettingItem) => {
+    if (item.visible && !item.visible()) return;
+    const label = t(`settings.${item.key}.label`);
+    const desc = item.hideDescription ? "" : t(`settings.${item.key}.description`);
+    const kw = item.keywords?.map((k) => t(k)).join(" ") ?? "";
+    if (`${label} ${desc} ${kw}`.toLowerCase().includes(q)) {
+      out.push({
+        categoryId: cat.id,
+        itemKey: item.key,
+        label,
+        description: desc,
+        categoryLabel: t(`settings.group.${cat.id}`),
+      });
+    }
+    if (item.children) {
+      for (const child of item.children) {
+        pushIfMatch(cat, sec, child);
+      }
+    }
+  };
+
   for (const cat of settingsSchema) {
     for (const sec of cat.sections ?? []) {
       for (const item of sec.items) {
-        if (item.visible && !item.visible()) continue;
-        const label = t(`settings.${item.key}.label`);
-        const desc = item.hideDescription ? "" : t(`settings.${item.key}.description`);
-        const kw = item.keywords?.map((k) => t(k)).join(" ") ?? "";
-        if (`${label} ${desc} ${kw}`.toLowerCase().includes(q)) {
-          out.push({
-            categoryId: cat.id,
-            itemKey: item.key,
-            label,
-            description: desc,
-            categoryLabel: t(`settings.group.${cat.id}`),
-          });
-        }
+        pushIfMatch(cat, sec, item);
       }
     }
   }

@@ -22,6 +22,8 @@ const isInternalNavigation = (url: string): boolean => {
 
 let mainWindow: BrowserWindow | null = null;
 
+let protocolRegistered = false;
+
 /**
  * 创建主窗口
  */
@@ -29,8 +31,11 @@ export const createMainWindow = (): BrowserWindow => {
   const remember = store.get("system.rememberWindowState") ?? true;
   const saved = remember ? store.get("windowStates.main") : undefined;
 
-  // 注册 cache:// 协议
-  handleCacheProtocolOnPartition(MAIN_PARTITION);
+  // 注册 cache:// 协议（仅首次）
+  if (!protocolRegistered) {
+    protocolRegistered = true;
+    handleCacheProtocolOnPartition(MAIN_PARTITION);
+  }
 
   mainWindow = createWindow({
     width: saved?.width ?? 1280,
@@ -64,8 +69,8 @@ export const createMainWindow = (): BrowserWindow => {
     initThumbar(mainWindow!);
   });
 
-  // 每次加载完成应用界面缩放
-  mainWindow.webContents.on("did-finish-load", () => {
+  // 每次加载完成应用界面缩放（页面重载时只触发一次）
+  mainWindow.webContents.once("did-finish-load", () => {
     applyMainWindowZoom();
   });
 
@@ -129,8 +134,12 @@ export const createMainWindow = (): BrowserWindow => {
   });
   // 外链协议白名单
   const openExternalSafe = (url: string): void => {
-    if (/^https?:$/i.test(new URL(url).protocol)) {
-      void shell.openExternal(url);
+    try {
+      if (/^https?:$/i.test(new URL(url).protocol)) {
+        void shell.openExternal(url);
+      }
+    } catch {
+      // 非法 URL 忽略
     }
   };
   // 设置窗口打开处理程序
@@ -151,12 +160,18 @@ export const createMainWindow = (): BrowserWindow => {
   // 基于 electron-vite cli 的 HMR
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     const base = process.env["ELECTRON_RENDERER_URL"];
-    mainWindow.loadURL(initialHash ? `${base}#${initialHash}` : base);
+    mainWindow.loadURL(initialHash ? `${base}#${initialHash}` : base).catch((err) => {
+      console.error("[mainWindow] loadURL failed:", err);
+    });
   } else {
-    mainWindow.loadFile(
-      join(__dirname, "../renderer/index.html"),
-      initialHash ? { hash: initialHash } : undefined,
-    );
+    mainWindow
+      .loadFile(
+        join(__dirname, "../renderer/index.html"),
+        initialHash ? { hash: initialHash } : undefined,
+      )
+      .catch((err) => {
+        console.error("[mainWindow] loadFile failed:", err);
+      });
   }
 
   mainWindow.on("closed", () => {

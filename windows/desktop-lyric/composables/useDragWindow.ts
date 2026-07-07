@@ -79,6 +79,11 @@ export const useDragWindow = (
 
   onBeforeUnmount(() => {
     if (dragTarget) {
+      try {
+        dragTarget.releasePointerCapture(dragPointerId);
+      } catch {
+        /* 捕获已失效 */
+      }
       dragTarget.removeEventListener("pointermove", onPointerMove);
       dragTarget.removeEventListener("pointerup", onPointerUp);
       dragTarget.removeEventListener("pointercancel", onPointerUp);

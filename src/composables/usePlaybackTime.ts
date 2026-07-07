@@ -15,8 +15,13 @@ export const usePlaybackTime = (
   let rafId: number | null = null;
 
   const tick = (): void => {
-    onTick(Math.round(getCurrentTime()), Math.round(getDuration()), isPlaying());
     rafId = requestAnimationFrame(tick);
+    try {
+      onTick(Math.round(getCurrentTime()), Math.round(getDuration()), isPlaying());
+    } catch (err) {
+      // onTick 异常不应中断 RAF 循环，但异常帧放弃本次回调
+      console.error("[usePlaybackTime] onTick error:", err);
+    }
   };
 
   const start = (): void => {

@@ -129,8 +129,12 @@ const detach = (): void => {
   lastPluginState = "paused";
 };
 
-/** 启动：按当前是否有控制类插件惰性挂载，并随其增减切换；每个插件就绪时定向补发快照 */
+/**
+ * 启动：按当前是否有控制类插件惰性挂载，并随其增减切换；每个插件就绪时定向补发快照
+ * 重复调用会被忽略，防止监听器泄漏。
+ */
 export const init = (): void => {
+  if (offRegistryEvents) return; // 已初始化，防止重复挂载
   if (pluginRegistry.hasEnabledControlPlugin()) attach();
   const onControlActivity = (active: boolean): void => (active ? attach() : detach());
   const onControlReady = (id: string): void => primePlugin(id);

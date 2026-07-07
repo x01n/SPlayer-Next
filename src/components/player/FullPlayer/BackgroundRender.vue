@@ -52,6 +52,8 @@ const updateRendererState = () => {
 
   if (props.album) {
     renderer.setAlbum(props.album, false);
+  } else {
+    renderer.setAlbum("", false);
   }
   renderer.setFPS(props.fps);
   renderer.setRenderScale(props.renderScale);
@@ -72,7 +74,7 @@ const syncRendererMotion = () => {
     renderer.resume();
   } else {
     renderer.setFlowSpeed(0);
-    renderer.resume();
+    renderer.pause();
   }
 };
 
@@ -177,8 +179,11 @@ onBeforeUnmount(() => {
 watch(
   () => props.album,
   (val) => {
-    if (val && bgRenderRef.value) {
+    if (!bgRenderRef.value) return;
+    if (val) {
       bgRenderRef.value.setAlbum(val, false);
+    } else {
+      bgRenderRef.value.setAlbum("", false);
     }
   },
 );
@@ -200,6 +205,28 @@ watch(
   () => props.fps,
   (val) => {
     bgRenderRef.value?.setFPS(val);
+  },
+);
+
+watch(
+  () => props.renderer,
+  () => {
+    const oldRenderer = bgRenderRef.value;
+    if (oldRenderer) {
+      stopFftCapture();
+      oldRenderer.pause();
+      oldRenderer.dispose();
+    }
+    if (!wrapperRef.value) return;
+
+    bgRenderRef.value = CoreBackgroundRender.new(props.renderer);
+    const el = bgRenderRef.value.getElement();
+    el.style.width = "100%";
+    el.style.height = "100%";
+    el.style.display = "block";
+    wrapperRef.value.appendChild(el);
+    updateRendererState();
+    syncFftCapture();
   },
 );
 

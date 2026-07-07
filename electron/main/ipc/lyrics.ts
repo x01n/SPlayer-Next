@@ -15,9 +15,9 @@ import * as kugou from "@main/apis/common/lyric/kugou";
 import * as spotify from "@main/apis/common/lyric/spotify";
 import { fetchTTML } from "@main/apis/common/lyric/ttml";
 import { matchLocalTTML } from "@main/services/localLyricRepo";
-import { buildFingerprint, getMatchedId } from "@main/database/lyricMatchCache";
+import { buildFingerprint, getMatchedId, setMatchedId } from "@main/database/lyricMatchCache";
 import { coreLog } from "@main/utils/logger";
-import type { LyricMatchResponse, LyricTTMLResponse } from "@shared/types/lyrics";
+import type { LyricMatchResponse, LyricTTMLResponse, LyricSearchCandidatesResponse, LyricManualMatchCommit } from "@shared/types/lyrics";
 import type { Platform } from "@shared/types/platform";
 import type { Track } from "@shared/types/player";
 
@@ -33,7 +33,7 @@ const dedup = <T>(key: string, run: () => Promise<T>): Promise<T> => {
   const existing = inflight.get(key) as Promise<T> | undefined;
   if (existing) return existing;
   const promise = run().finally(() => {
-    if (inflight.get(key) === promise) inflight.delete(key);
+    inflight.delete(key);
   });
   inflight.set(key, promise);
   return promise;
@@ -87,6 +87,27 @@ const resolveByQuery = async (platform: Platform, track: Track): Promise<LyricMa
 };
 
 /**
+ * 按 Track 元数据在各平台搜索候选歌曲列表
+ * @param track - 歌曲信息
+ * @returns 候选列表
+ */
+const resolveSearchCandidates = async (track: Track): Promise<LyricSearchCandidatesResponse> => {
+  try {
+    const all = await Promise.all([
+      netease.searchCandidates(track),
+      qqmusic.searchCandidates(track),
+      kugou.searchCandidates(track),
+      spotify.searchCandidates(track),
+    ]);
+    const data = all.flat();
+    return { ok: true, data };
+  } catch (err) {
+    coreLog.warn(`[lyrics] searchCandidates(${track.title}) failed:`, err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+};
+
+/**
  * 按 Track 解析出对应平台的 TTML 候选 id，依次抓取直至命中。
  * - NCM：track.platform=netease 时用 track.id；其它情况查 match cache 拿数字 id
  * - QM：track.platform=qqmusic 时把 track.id 当数字 id 候选；再叠加 match cache 的 mid + 数字 id
@@ -123,6 +144,12 @@ export const registerLyricsIpc = (): void => {
   ipcMain.handle("lyrics:matchByQuery", (_evt, platform: Platform, track: Track) =>
     dedup(`byQuery:${platform}:${track.id}`, () => resolveByQuery(platform, track)),
   );
+  ipcMain.handle("lyrics:searchCandidates", (_evt, track: Track) =>
+    dedup(`candidates:${track.id}`, () => resolveSearchCandidates(track)),
+  );
+  ipcMain.handle("lyrics:commitManualMatch", (_evt, commit: LyricManualMatchCommit) => {
+    setMatchedId(commit.fingerprint, commit.platform, commit.platformId, commit.extra);
+  });
   ipcMain.handle("lyrics:fetchTTMLOverlay", (_evt, track: Track, platform: "netease" | "qqmusic") =>
     dedup(`ttml:${platform}:${track.id}`, () => resolveTTMLOverlay(track, platform)),
   );

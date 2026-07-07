@@ -154,15 +154,24 @@ const loadColorFromRemote = async (url: string): Promise<void> => {
     const blob = new Blob([new Uint8Array(result.data)]);
     const blobUrl = URL.createObjectURL(blob);
     const img = new Image();
+    let revoked = false;
+    const revoke = () => {
+      if (!revoked) {
+        revoked = true;
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
     img.onload = () => {
       themeStore.coverColor = extractColorFromImageElement(img);
-      URL.revokeObjectURL(blobUrl);
+      revoke();
     };
     img.onerror = () => {
       themeStore.coverColor = null;
-      URL.revokeObjectURL(blobUrl);
+      revoke();
     };
     img.src = blobUrl;
+    // 兜底：极端情况下 onload/onerror 均不触发，10 秒后强制释放
+    setTimeout(revoke, 10000);
   } catch {
     themeStore.coverColor = null;
   }
@@ -191,7 +200,11 @@ const extractColorFromImageElement = (img: HTMLImageElement): string | null => {
   canvas.width = 50;
   canvas.height = 50;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
+  if (!ctx) {
+    canvas.width = 0;
+    canvas.height = 0;
+    return null;
+  }
   ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, 50, 50);
   // 跨域无 CORS 头会污染 canvas，getImageData 抛 SecurityError → 静默放弃提色
   let data: Uint8ClampedArray;

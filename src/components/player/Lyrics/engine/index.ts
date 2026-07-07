@@ -51,6 +51,8 @@ export class LyricRenderer {
   private activeLineSet = new Set<number>();
   /** 上一次处理的播放时间，用于 seek 检测 */
   private lastProcessedTime = -1;
+  /** 上一次 handleSeek 的目标时间，用于去重防止高频重复调用 */
+  private lastSeekTime = -1;
 
   /** 每行的 Y 轴位置弹簧 */
   private positionSprings: Spring[] = [];
@@ -288,6 +290,12 @@ export class LyricRenderer {
   };
 
   /**
+   * 获取当前歌词数据
+   * @returns 歌词行数组
+   */
+  getLyrics = (): LyricLine[] => this.lines;
+
+  /**
    * 设置歌词数据
    * @param lines - 歌词行数组
    */
@@ -305,6 +313,7 @@ export class LyricRenderer {
     this.activeLineIndex = -1;
     this.activeLineSet.clear();
     this.lastProcessedTime = -1;
+    this.lastSeekTime = -1;
     this.userScrollOffset = 0;
     this.interludeState.isActive = false;
     // 含对唱行时启用左右分栏布局
@@ -384,7 +393,8 @@ export class LyricRenderer {
 
     // 重置时间状态，避免残留旧歌的播放时间影响新歌词定位
     this.pendingPlayTime = -1;
-    this.lastProcessedTime = -1;
+    // 保留 lastProcessedTime 为 seekTime，避免后续 processTime 因检测到 "首次处理" 而重复调用 handleSeek
+    this.lastProcessedTime = seekTime;
     // 重置帧时间戳，避免渲染器空闲后首帧 deltaTime 过大导致弹簧瞬移
     this.lastFrameTimestamp = 0;
 
@@ -483,7 +493,7 @@ export class LyricRenderer {
 
   /**
    * 处理播放时间变化，检测激活行的增减
-   * 自动识别 seek：时间倒退 >100ms 或前进 >2000ms
+   * 自动识别 seek：时间倒退 >100ms 或前进 >500ms
    * @param currentTime - 当前播放时间（毫秒）
    * @returns 是否发生了激活行变化
    */
@@ -491,7 +501,7 @@ export class LyricRenderer {
     const isFirst = this.lastProcessedTime < 0;
     const isSeeked =
       !isFirst &&
-      (currentTime < this.lastProcessedTime - 100 || currentTime > this.lastProcessedTime + 2000);
+      (currentTime < this.lastProcessedTime - 100 || currentTime > this.lastProcessedTime + 500);
     this.lastProcessedTime = currentTime;
 
     if (isFirst || isSeeked) {
@@ -507,10 +517,32 @@ export class LyricRenderer {
     const activated: number[] = [];
     const deactivated = new Set<number>();
 
+    // 纯逐行歌词：预计算当前应激活的最新开始行索引
+    let latestPlainIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.isBG) continue;
+      if (line.words && line.words.length > 0) continue;
+      if (line.startTime <= currentTime) {
+        latestPlainIdx = i;
+      }
+    }
+
     // 检测新激活的行
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (line.isBG) continue;
+
+      // 纯逐行歌词：只激活最新开始的行（避免依赖不准确的 endTime）
+      if (!line.words || line.words.length === 0) {
+        if (i === latestPlainIdx && !this.activeLineSet.has(i)) {
+          activated.push(i);
+          if (lines[i + 1]?.isBG) activated.push(i + 1);
+        }
+        continue;
+      }
+
+      // 有逐字信息的歌词：保持原有 startTime/endTime 范围判断
       if (
         line.startTime <= currentTime &&
         line.endTime > currentTime &&
@@ -533,6 +565,13 @@ export class LyricRenderer {
           deactivated.add(lineIdx);
         continue;
       }
+
+      // 纯逐行歌词：当不是最新开始的行时立即停用
+      if (!line.words || line.words.length === 0) {
+        if (lineIdx !== latestPlainIdx) deactivated.add(lineIdx);
+        continue;
+      }
+
       const nextLine = lines[lineIdx + 1];
       if (nextLine?.isBG) {
         // 对唱行：计算配对的时间范围
@@ -573,6 +612,10 @@ export class LyricRenderer {
    * @param snap - true 时布局与透明度直接瞬移到目标状态（用于隐藏/冻结恢复）
    */
   private handleSeek = (targetTime: number, snap = false) => {
+    // 若与上次 seek 目标相同且非瞬移，则跳过，防止高频重复调用
+    if (targetTime === this.lastSeekTime && !snap) return;
+    this.lastSeekTime = targetTime;
+
     this.userScrollOffset = 0;
     this.isUserScrolling = false;
     clearTimeout(this.scrollResetTimerId);
@@ -586,8 +629,37 @@ export class LyricRenderer {
 
     // 扫描并激活目标时间对应的行
     const lines = this.lines;
+
+    // 纯逐行歌词：预计算当前应激活的最新开始行索引
+    let latestPlainIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.isBG) continue;
+      if (line.words && line.words.length > 0) continue;
+      if (line.startTime <= targetTime) {
+        latestPlainIdx = i;
+      }
+    }
+
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].isBG) continue;
+
+      // 纯逐行歌词：只激活最新开始的行
+      if (!lines[i].words || lines[i].words.length === 0) {
+        if (i === latestPlainIdx) {
+          this.activeLineSet.add(i);
+          this.lineElements[i]?.classList.add("active");
+          this.activateLineAnimations(i, targetTime);
+          if (lines[i + 1]?.isBG) {
+            this.activeLineSet.add(i + 1);
+            this.lineElements[i + 1]?.classList.add("active");
+            this.activateLineAnimations(i + 1, targetTime);
+          }
+        }
+        continue;
+      }
+
+      // 有逐字信息的歌词：保持原有范围判断
       if (lines[i].startTime <= targetTime && lines[i].endTime > targetTime) {
         this.activeLineSet.add(i);
         this.lineElements[i]?.classList.add("active");

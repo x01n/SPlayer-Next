@@ -1,5 +1,6 @@
 {
   "name": "x11-helper",
+  "version": "0.1.0",
   "main": "x11-helper.node",
   "types": "index.d.ts",
   "napi": {

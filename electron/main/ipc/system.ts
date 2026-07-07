@@ -66,7 +66,6 @@ export const registerSystemIpc = (): void => {
     if (!fontsCache) {
       fontsCache = getFonts({ disableQuoting: true }).catch((err) => {
         systemLog.error("[system] listFonts failed", err);
-        fontsCache = null;
         return [];
       });
     }
@@ -86,6 +85,7 @@ export const registerSystemIpc = (): void => {
       return { success: false, error: "无效的 URL" };
     }
     const buf = await fetchBytes(url, { requireImage: true });
+    if (!buf) return { success: false, error: "获取远程内容失败" };
     return { success: true, data: buf };
   });
 

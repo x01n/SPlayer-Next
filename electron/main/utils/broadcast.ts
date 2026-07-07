@@ -9,7 +9,7 @@ import { getMainWindow } from "@main/window";
  */
 export const broadcast = (channel: string, data: unknown, visibleOnly = false): void => {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
+    if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
     if (visibleOnly && !win.isVisible()) continue;
     win.webContents.send(channel, data);
   }
@@ -22,7 +22,7 @@ export const broadcast = (channel: string, data: unknown, visibleOnly = false): 
  */
 export const sendToMain = (channel: string, data?: unknown): void => {
   const win = getMainWindow();
-  if (win && !win.isDestroyed()) {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
     win.webContents.send(channel, data);
   }
 };

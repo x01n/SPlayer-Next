@@ -1,5 +1,5 @@
 /** 平台类型 */
-export type Platform = "netease" | "qqmusic" | "kugou" | "spotify";
+export type Platform = "netease" | "qqmusic" | "kugou" | "spotify" | "bilibili";
 
 /** 平台简写 */
 export const PLATFORM_SHORT_NAME: Record<Platform, string> = {
@@ -7,10 +7,11 @@ export const PLATFORM_SHORT_NAME: Record<Platform, string> = {
   qqmusic: "QM",
   kugou: "KG",
   spotify: "SP",
+  bilibili: "B站",
 };
 
 /** 全部平台 */
-export const ALL_PLATFORMS: Platform[] = ["netease", "qqmusic", "kugou", "spotify"];
+export const ALL_PLATFORMS: Platform[] = ["netease", "qqmusic", "kugou", "spotify", "bilibili"];
 
 const PLATFORM_SET = new Set<string>(ALL_PLATFORMS);
 

@@ -60,10 +60,12 @@ export const useStreamingStore = defineStore("streaming", () => {
   );
   const hasServer = computed(() => servers.value.length > 0);
   const isConnected = computed(() => connectionStatus.value.connected);
+  const electronApi = window.api;
 
   /** 把 servers + activeServerId 写到主进程 */
   const persistServers = (): void => {
-    void window.api.streaming.saveServers({
+    if (!electronApi) return;
+    void electronApi.streaming.saveServers({
       servers: servers.value.map((s) => ({ ...s })),
       activeServerId: activeServerId.value,
     });
@@ -74,9 +76,12 @@ export const useStreamingStore = defineStore("streaming", () => {
 
   /** 落盘前剥离 cover/avatar URL 上的鉴权参数；落盘的不是可重放凭据 */
   const stripCacheAuth = (snapshot: ServerCache, type: StreamingServerType): ServerCache => ({
-    songs: snapshot.songs.map((track) =>
-      track.cover ? { ...track, cover: client.stripCoverAuth(track.cover, type) } : track,
-    ),
+    songs: snapshot.songs.map((track) => {
+      const next = { ...track };
+      if (next.cover) next.cover = client.stripCoverAuth(next.cover, type);
+      if (next.coverOriginal) next.coverOriginal = client.stripCoverAuth(next.coverOriginal, type);
+      return next;
+    }),
     albums: snapshot.albums.map((album) =>
       album.cover ? { ...album, cover: client.stripCoverAuth(album.cover, type) } : album,
     ),
@@ -95,9 +100,12 @@ export const useStreamingStore = defineStore("streaming", () => {
   const refreshCoverUrlsForActive = (): void => {
     const cfg = activeServer.value;
     if (!cfg) return;
-    songs.value = songs.value.map((track) =>
-      track.cover ? { ...track, cover: client.refreshCoverAuth(track.cover, cfg) } : track,
-    );
+    songs.value = songs.value.map((track) => {
+      const next = { ...track };
+      if (next.cover) next.cover = client.refreshCoverAuth(next.cover, cfg);
+      if (next.coverOriginal) next.coverOriginal = client.refreshCoverAuth(next.coverOriginal, cfg);
+      return next;
+    });
     albums.value = albums.value.map((album) =>
       album.cover ? { ...album, cover: client.refreshCoverAuth(album.cover, cfg) } : album,
     );
@@ -245,6 +253,7 @@ export const useStreamingStore = defineStore("streaming", () => {
       activeServerId.value = null;
       connectionStatus.value = { connected: false };
       clearMemoryLists();
+      hydrated.value = false;
     }
     persistServers();
   };
@@ -356,6 +365,9 @@ export const useStreamingStore = defineStore("streaming", () => {
     connectionStatus.value = { connected: false };
   };
 
+  /** 重登锁：同一 cfg.id 正在重登时复用 Promise，防止并发重登风暴 */
+  const reauthLocks = new Map<string, Promise<ConnectResult>>();
+
   /**
    * 包装：执行 fn；遇到 StreamingAuthError 自动重登重试一次
    * 仅 jellyfin/emby 走重登；subsonic 系密码错就是错，没有 token 概念
@@ -371,7 +383,13 @@ export const useStreamingStore = defineStore("streaming", () => {
       return await fn(cfg);
     } catch (err) {
       if (!(err instanceof StreamingAuthError) || !needsAccessToken(cfg.type)) throw err;
-      const r = await runConnect(cfg.id, () => cfg.id === activeServerId.value);
+      let lock = reauthLocks.get(cfg.id);
+      if (!lock) {
+        lock = runConnect(cfg.id, () => cfg.id === activeServerId.value);
+        reauthLocks.set(cfg.id, lock);
+        lock.finally(() => reauthLocks.delete(cfg.id));
+      }
+      const r = await lock;
       if (!r.ok) throw err;
       const refreshed = servers.value.find((s) => s.id === cfg.id);
       if (!refreshed) throw err;
@@ -544,7 +562,7 @@ export const useStreamingStore = defineStore("streaming", () => {
       if (!result.ok) throw new Error(isActive ? result.error : `${cfg.name}: ${result.error}`);
     }
     const fresh = servers.value.find((s) => s.id === cfg.id) ?? cfg;
-    const sessionId = opts?.playSessionId ?? session.sessionIdForTrack(track.id);
+    const sessionId = opts?.playSessionId || session.sessionIdForTrack(track.id);
     return withAutoReauthFor(fresh, (c) => client.getStreamUrl(c, track.originalId!, sessionId));
   };
 
@@ -569,7 +587,11 @@ export const useStreamingStore = defineStore("streaming", () => {
 
   const init = async (): Promise<void> => {
     if (hydrated.value) return;
-    const result = await window.api.streaming.loadServers();
+    if (!electronApi) {
+      hydrated.value = true;
+      return;
+    }
+    const result = await electronApi.streaming.loadServers();
     servers.value = result.servers;
     activeServerId.value = result.activeServerId;
     if (activeServerId.value && !servers.value.find((s) => s.id === activeServerId.value)) {

@@ -36,7 +36,7 @@ export const resolveDownloadLyric = async (track: Track): Promise<DownloadLyric 
   }
   // 在线平台：按 id 直取
   if (isPlatform(track.source)) {
-    const lookupId = track.source === "qqmusic" ? (track.extId ?? track.id) : track.id;
+    const lookupId = track.source === "qqmusic" ? (track.extId || track.id) : track.id;
     const resp = await window.api.lyrics.matchById(track.source, lookupId);
     if (resp.ok && resp.data?.content) {
       return {

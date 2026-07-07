@@ -8,11 +8,25 @@ export interface SImgProps {
   fallback?: string;
   /** alt 文字 */
   alt?: string;
+  /** referrer policy */
+  referrerpolicy?:
+    | ""
+    | "no-referrer"
+    | "no-referrer-when-downgrade"
+    | "origin"
+    | "origin-when-cross-origin"
+    | "same-origin"
+    | "strict-origin"
+    | "strict-origin-when-cross-origin"
+    | "unsafe-url";
+  /** 图片加载策略 */
+  loading?: "lazy" | "eager";
 }
 
 const props = withDefaults(defineProps<SImgProps>(), {
   fallback: defaultFallback,
   alt: "",
+  loading: "lazy",
 });
 
 const emit = defineEmits<{
@@ -58,9 +72,10 @@ watch(
         <img
           :src="src"
           :alt="alt"
+          :referrerpolicy="referrerpolicy"
           class="w-full h-full object-cover opacity-0 transition-opacity duration-200"
           decoding="async"
-          loading="lazy"
+          :loading="loading"
           @load="onLoad"
           @error="isLoaded = false"
         />

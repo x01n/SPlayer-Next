@@ -21,7 +21,11 @@ import { registerListenTogetherIpc } from "./listenTogether";
 import { registerCommentsIpc } from "./comments";
 
 /** 注册所有 IPC 处理 */
+let registered = false;
+
 export const registerIpcHandlers = (): void => {
+  if (registered) return;
+  registered = true;
   registerSystemIpc();
   registerPlayerIpc();
   registerConfigIpc();

@@ -35,8 +35,12 @@ let loadAbort: AbortController | null = null;
 /** 折叠状态 */
 const collapsed = ref(false);
 
-/** 滚动超过阈值折叠 */
+/** 滚动超过阈值折叠（16ms 节流） */
+let lastScrollTime = 0;
 const handleListScroll = (event: Event) => {
+  const now = performance.now();
+  if (now - lastScrollTime < 16) return;
+  lastScrollTime = now;
   const scrollTop = (event.target as HTMLElement).scrollTop;
   if (!collapsed.value && scrollTop > 10) {
     collapsed.value = true;

@@ -30,6 +30,9 @@ const cacheHandler = (request: Request): Response | Promise<Response> => {
   // 剥离查询串：?v=xxx 仅用于封面替换后的缓存失效，不参与路径解析
   const withoutQuery = request.url.split("?")[0];
   const relativePath = decodeURIComponent(withoutQuery.slice(`${SCHEME}://`.length));
+  if (!relativePath) {
+    return new Response(null, { status: 403 });
+  }
   const root = getAppCacheDir();
   const resolved = path.resolve(root, relativePath);
   // 防 cache://../ 逃逸：解析后的绝对路径必须仍在缓存根目录内
@@ -49,10 +52,15 @@ export const handleCacheProtocol = (): void => {
   protocol.handle(SCHEME, cacheHandler);
 };
 
+/** 已注册 cache:// 协议的 partition 集合 */
+const registeredPartitions = new Set<string>();
+
 /**
  * 在指定 partition 的 session 上注册 cache:// 协议处理
  */
 export const handleCacheProtocolOnPartition = (partition: string): void => {
+  if (registeredPartitions.has(partition)) return;
+  registeredPartitions.add(partition);
   session.fromPartition(partition).protocol.handle(SCHEME, cacheHandler);
 };
 

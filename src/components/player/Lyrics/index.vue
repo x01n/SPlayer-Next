@@ -136,13 +136,22 @@ let pendingLyrics: LyricLine[] | null = null;
  * 由外部播放器在每帧或定时器中调用，驱动歌词滚动与逐字高亮动画。
  *
  * @param time - 当前播放时间（毫秒）
+ * @param isSeek - 是否为 seek 跳转，true 时直接瞬移布局
  */
-const setCurrentTime = (time: number) => {
-  renderer?.setCurrentTime(time);
+const setCurrentTime = (time: number, isSeek?: boolean) => {
+  if (isSeek) {
+    renderer?.setCurrentTime(time);
+    // 强制下一帧立即处理时间，触发 handleSeek 瞬移
+    renderer?.["onAnimationFrame"](performance.now());
+  } else {
+    renderer?.setCurrentTime(time);
+  }
 };
 
 const freeze = () => {
   isFrozen = true;
+  // 冻结时保存当前歌词，确保 resume 后能恢复
+  pendingLyrics = props.lyricLines;
   renderer?.freeze();
 };
 const resume = () => {

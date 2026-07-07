@@ -4,7 +4,7 @@ import { ConfigApi, ExternalApiStatus, LocaleCode } from "@shared/types/settings
 import { LibraryApi } from "@shared/types/library";
 import { NowPlayingApi } from "@shared/types/nowPlaying";
 import { PluginsApi } from "@shared/types/plugin";
-import { ApisApi } from "@shared/types/apis";
+import { ApisApi, QQMusicApi } from "@shared/types/apis";
 import { LyricsApi } from "@shared/types/lyrics";
 import { DownloadApi } from "@shared/types/download";
 import {
@@ -64,6 +64,7 @@ declare global {
       download: DownloadApi;
       theme: {
         pickBackgroundImage: () => Promise<string | null>;
+        pickCustomVideo: () => Promise<string | null>;
         clearBackgroundImages: () => Promise<void>;
       };
       cache: {
@@ -91,6 +92,48 @@ declare global {
         restart: () => Promise<ExternalApiStatus>;
         getStatus: () => Promise<ExternalApiStatus>;
       };
+      spotify: {
+        login: () => Promise<
+          | { ok: true; profile: { id: string; display_name: string; email?: string; images?: Array<{ url: string }> } }
+          | { ok: false; error: string }
+        >;
+        logout: () => Promise<{ ok: true }>;
+        getStatus: () => Promise<
+          | { ok: true; loggedIn: boolean; profile?: { id: string; display_name: string; email?: string; images?: Array<{ url: string }> } }
+          | { ok: false; error: string }
+        >;
+      };
+      kugou: {
+        logout: () => Promise<{ ok: true }>;
+        getStatus: () => Promise<
+          | { ok: true; profile: { userId: string; nickname: string; avatarUrl?: string } | null }
+          | { ok: false; error: string }
+        >;
+      };
+      bilibili: {
+        logout: () => Promise<{ ok: true }>;
+        getStatus: () => Promise<
+          | { ok: true; profile: { userId: number; nickname: string; avatarUrl?: string } | null }
+          | { ok: false; error: string }
+        >;
+        qrKey: () => Promise<{ ok: true; key: string; url: string } | { ok: false; error: string }>;
+        qrCheck: (key: string) => Promise<
+          | { ok: true; code: number; message: string; cookie?: string; url?: string }
+          | { ok: false; error: string }
+        >;
+        pwdLogin: (username: string, password: string) => Promise<
+          | {
+              ok: true;
+              success: boolean;
+              cookie?: string;
+              message?: string;
+              needCaptcha?: boolean;
+              needVerify?: boolean;
+            }
+          | { ok: false; error: string }
+        >;
+      };
+      qqmusic: QQMusicApi;
       update: UpdateApi;
       listenTogether: {
         createRoom: (

@@ -343,7 +343,7 @@ class PluginHost {
     this.heartbeatTimer = setInterval(() => {
       if (!this.child) return;
       this.heartbeatMisses++;
-      if (this.heartbeatMisses > HEARTBEAT_MAX_MISSES) {
+      if (this.heartbeatMisses >= HEARTBEAT_MAX_MISSES) {
         coreLog.warn("[plugin-host] 心跳丢失，重启 host");
         this.handleHostCrash("heartbeat");
         return;

@@ -40,8 +40,8 @@ enum SeekOutcome {
     Fallback,
 }
 
-/// 全局扫描取消标志
-static SCAN_CANCEL: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+/// 全局扫描任务句柄与取消标志
+static SCAN_TASK: Mutex<Option<(JoinHandle<()>, Arc<AtomicBool>)>> = Mutex::new(None);
 
 /// load 被更新的 load/stop 取代时的错误文案
 /// 主进程 IPC 按此文案识别并映射为 LOAD_SUPERSEDED（正常竞态，前端静默），改动需同步
@@ -276,7 +276,7 @@ impl AudioPlayer {
         let shared_for_decoder = Arc::clone(&shared);
         let source_for_decoder = source.clone();
 
-        let (metadata, decode_handle) = tokio::task::spawn_blocking(move || {
+        let inner_result = tokio::task::spawn_blocking(move || {
             if let Some(h) = old_threads.join_aux() {
                 let _ = h.join();
             }
@@ -287,8 +287,19 @@ impl AudioPlayer {
             )
         })
         .await
-        .map_err(|e| Error::from_reason(format!("load task join error: {e}")))?
-        .into_napi()?;
+        .map_err(|e| Error::from_reason(format!("load task join error: {e}")))?;
+
+        // 在 commit 前检查 token：如果 stop() 或新 load 已发生，统一返回 LOAD_SUPERSEDED_REASON，
+        // 避免在已被取消的加载上返回网络/解码错误，导致前端误报
+        if !self.inner.lock().is_load_token_current(token) {
+            if let Ok((_, decode_handle)) = inner_result {
+                shared.stop();
+                drop(decode_handle);
+            }
+            return Err(Error::from_reason(LOAD_SUPERSEDED_REASON));
+        }
+
+        let (metadata, decode_handle) = inner_result.into_napi()?;
 
         let returned_meta = {
             let mut player = self.inner.lock();
@@ -757,11 +768,20 @@ pub fn scan_dirs(
             .collect()
     });
 
-    // 创建取消标志并保存到全局，供 cancel_scan 使用
-    let cancel = Arc::new(AtomicBool::new(false));
-    *SCAN_CANCEL.lock() = Some(Arc::clone(&cancel));
+    // 防止并发扫描：旧任务仍在运行时不启动新任务
+    {
+        let mut guard = SCAN_TASK.lock();
+        if let Some((ref handle, _)) = *guard {
+            if !handle.is_finished() {
+                return Err(Error::from_reason("已有扫描任务在运行"));
+            }
+        }
+        *guard = None;
+    }
 
-    thread::spawn(move || {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_for_thread = Arc::clone(&cancel);
+    let handle = thread::spawn(move || {
         let emit = |event: scanner::ScanEvent| {
             let js_event = match event {
                 scanner::ScanEvent::Progress {
@@ -792,25 +812,29 @@ pub fn scan_dirs(
             tsfn.call(js_event, ThreadsafeFunctionCallMode::NonBlocking);
         };
 
-        scanner::scan_directories(
-            &dirs,
-            cover_cache_dir.as_deref(),
-            records.as_deref(),
-            &cancel,
-            &emit,
-        );
+        // 捕获 panic 并确保全局任务记录被清理，避免崩溃后无法再次扫描
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            scanner::scan_directories(
+                &dirs,
+                cover_cache_dir.as_deref(),
+                records.as_deref(),
+                &cancel_for_thread,
+                &emit,
+            );
+        }));
 
-        // 扫描结束后清除全局取消标志
-        *SCAN_CANCEL.lock() = None;
+        // 扫描结束后清除全局任务记录
+        *SCAN_TASK.lock() = None;
     });
 
+    *SCAN_TASK.lock() = Some((handle, cancel));
     Ok(())
 }
 
 /// 取消正在进行的扫描任务
 #[napi]
 pub fn cancel_scan() {
-    if let Some(cancel) = SCAN_CANCEL.lock().as_ref() {
+    if let Some((_, cancel)) = SCAN_TASK.lock().as_ref() {
         cancel.store(true, Ordering::Release);
         info!("已发送扫描取消信号");
     }

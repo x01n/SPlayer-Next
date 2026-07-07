@@ -46,14 +46,15 @@ const {
 } = useHomeDiscover();
 
 onMounted(() => {
-  void loadHeader();
-  void loadHero();
-  void loadContinue();
-  void loadDiscover();
+  loadHeader().catch(() => {});
+  loadHero().catch(() => {});
+  loadContinue().catch(() => {});
+  loadDiscover().catch(() => {});
 });
 
 /** 拼接歌手名 */
-const artistName = (track: Track): string => track.artists.map((artist) => artist.name).join(" / ");
+const artistName = (track: Track): string =>
+  track.artists?.map((artist) => artist.name).join(" / ") ?? "";
 
 /** 序号补零为两位 */
 const trackNo = (index: number): string => String(index + 1).padStart(2, "0");

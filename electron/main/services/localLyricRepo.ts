@@ -50,8 +50,8 @@ const extractMeta = (
   const head = bodyAt > 0 ? text.slice(0, bodyAt) : text.slice(0, 8000);
   const meta: { name?: string; artist?: string; ncmId?: string; qqId?: string } = {};
   for (const tag of head.matchAll(/<amll:meta\b[^>]*>/gi)) {
-    const key = tag[0].match(/\bkey="([^"]*)"/)?.[1];
-    const value = tag[0].match(/\bvalue="([^"]*)"/)?.[1];
+    const key = tag[0].match(/\bkey=["']([^"']*)["']/)?.[1];
+    const value = tag[0].match(/\bvalue=["']([^"']*)["']/)?.[1];
     if (!key || !value) continue;
     if (key === "musicName" && !meta.name) meta.name = value;
     else if (key === "artists" && !meta.artist) meta.artist = value;

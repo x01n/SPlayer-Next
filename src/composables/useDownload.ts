@@ -138,6 +138,9 @@ export const useDownload = () => {
             off();
             resolve();
           }
+        }).catch(() => {
+          off();
+          resolve();
         });
       });
     });

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import type { TaskbarLyricSettings } from "@shared/types/settings";
+import type { LocaleCode, TaskbarLyricSettings, DesktopLyricSettings, DynamicIslandSettings } from "@shared/types/settings";
 import type {
   PluginInfo,
   PluginResolveUrlArgs,
@@ -11,19 +11,70 @@ import type {
   PluginPanelMessageArgs,
 } from "@shared/types/plugin";
 import type { HotkeyActionId, HotkeyBinding, HotkeyConflict } from "@shared/types/hotkey";
-import type { LoadOptions, TrackSource } from "@shared/types/player";
+import type { LoadOptions, Track, TrackSource, PlayerEvent, RepeatMode, ShuffleMode } from "@shared/types/player";
+import type { ApiPlatform } from "@shared/types/apis";
+import type { ScanProgress } from "@shared/types/library";
 import type { StreamingServerConfig } from "@shared/types/streaming";
 import type { PlayEventInput, FavoriteEventInput } from "@shared/types/stats";
 import type { TagEditRequest } from "@shared/types/tagEditor";
 import type { UpdateEvent } from "@shared/types/update";
 import type { CloudUploadProgress } from "@shared/types/cloudUpload";
 import type { MusicCommentQuery } from "@shared/types/comment";
+import type { DownloadRequest, DownloadProgress, DownloadTask } from "@shared/types/download";
+import type {
+  NowPlayingUpdatePayload,
+  NowPlayingSnapshot,
+  NowPlayingPositionSync,
+  NowPlayingLyricOffsetSync,
+} from "@shared/types/nowPlaying";
+
+/** 各 channel 的回调集合，避免 removeAllListeners 导致跨消费者竞态 */
+const listenerMap = new Map<string, Set<(_event: Electron.IpcRendererEvent, data: unknown) => void>>();
+
+/** 获取或创建代理 handler */
+const getProxyHandler = (channel: string): ((_event: Electron.IpcRendererEvent, data: unknown) => void) => {
+  return (_event: Electron.IpcRendererEvent, data: unknown): void => {
+    const set = listenerMap.get(channel);
+    if (!set) return;
+    for (const handler of set) {
+      try {
+        handler(_event, data);
+      } catch (err) {
+        console.error(`[preload] handler error on ${channel}:`, err);
+      }
+    }
+  };
+};
 
 /** 订阅主进程推送的事件 */
 const subscribe = <T>(channel: string, callback: (data: T) => void): (() => void) => {
-  const handler = (_event: Electron.IpcRendererEvent, data: T): void => callback(data);
-  ipcRenderer.on(channel, handler);
-  return () => ipcRenderer.removeListener(channel, handler);
+  const handler = (_event: Electron.IpcRendererEvent, data: T): void => {
+    try {
+      const result = callback(data) as unknown;
+      if (result instanceof Promise) {
+        (result as Promise<unknown>).catch((err) => console.error(`[preload] handler error:`, err));
+      }
+    } catch (err) {
+      console.error(`[preload] handler error:`, err);
+    }
+  };
+  let set = listenerMap.get(channel);
+  if (!set) {
+    set = new Set();
+    listenerMap.set(channel, set);
+    ipcRenderer.on(channel, getProxyHandler(channel));
+  }
+  set.add(handler as (_event: Electron.IpcRendererEvent, data: unknown) => void);
+  return () => {
+    const currentSet = listenerMap.get(channel);
+    if (currentSet) {
+      currentSet.delete(handler as (_event: Electron.IpcRendererEvent, data: unknown) => void);
+      if (currentSet.size === 0) {
+        listenerMap.delete(channel);
+        ipcRenderer.removeAllListeners(channel);
+      }
+    }
+  };
 };
 
 // 暴露给渲染进程的自定义 API
@@ -35,7 +86,7 @@ const api = {
     reset: () => ipcRenderer.invoke("config:reset"),
     replaceAll: (config: unknown) => ipcRenderer.invoke("config:replaceAll", config),
     exportToFile: (
-      payload: unknown,
+      payload?: unknown,
     ): Promise<{ ok: boolean; reason?: "canceled" | "writeFailed" }> =>
       ipcRenderer.invoke("config:exportToFile", payload),
     importFromFile: (): Promise<
@@ -74,17 +125,17 @@ const api = {
     getSelectedDeviceName: () => ipcRenderer.invoke("player:getSelectedDeviceName"),
     getCoverRaw: () => ipcRenderer.invoke("player:getCoverRaw"),
     readLyricFile: (filePath: string) => ipcRenderer.invoke("player:readLyricFile", filePath),
-    syncPlayMode: (repeatMode: string, shuffleMode: string) =>
+    syncPlayMode: (repeatMode: RepeatMode, shuffleMode: ShuffleMode) =>
       ipcRenderer.send("player:syncPlayMode", repeatMode, shuffleMode),
     syncLikeState: (liked: boolean) => ipcRenderer.send("player:syncLikeState", liked),
     dispatch: (type: string) => ipcRenderer.send("player:dispatch", type),
-    onEvent: (callback: (event: unknown) => void) => subscribe("player:event", callback),
+    onEvent: (callback: (event: PlayerEvent) => void) => subscribe("player:event", callback),
   },
   system: {
     toggleDevTools: () => ipcRenderer.invoke("system:toggleDevTools"),
     showInExplorer: (filePath: string) => ipcRenderer.invoke("system:showInExplorer", filePath),
     openLogsDir: () => ipcRenderer.invoke("system:openLogsDir"),
-    setLocale: (locale: string) => ipcRenderer.send("system:setLocale", locale),
+    setLocale: (locale: LocaleCode) => ipcRenderer.send("system:setLocale", locale),
     focusMainWindow: () => ipcRenderer.invoke("system:focusMainWindow"),
     openSettings: (category?: string, highlight?: string) =>
       ipcRenderer.invoke("system:openSettings", category, highlight),
@@ -92,8 +143,8 @@ const api = {
       subscribe<{ category?: string; highlight?: string }>("system:openSettings", callback),
     listFonts: () => ipcRenderer.invoke("system:listFonts"),
     fetchRemoteBytes: (url: string) => ipcRenderer.invoke("system:fetchRemoteBytes", url),
-    saveFile: (data: ArrayBuffer, defaultName: string) =>
-      ipcRenderer.invoke("system:saveFile", data, defaultName),
+    saveFile: (data: ArrayBuffer, fileName: string) =>
+      ipcRenderer.invoke("system:saveFile", data, fileName),
     relaunch: () => ipcRenderer.invoke("system:relaunch"),
     onProtocolUrl: (callback: (url: string) => void) =>
       subscribe<string>("protocol:orpheus", callback),
@@ -130,7 +181,7 @@ const api = {
       ipcRenderer.invoke("library:fetchArtistAvatar", artistName),
     prefetchArtistAvatars: (artistNames: string[]) =>
       ipcRenderer.invoke("library:prefetchArtistAvatars", artistNames),
-    onScanProgress: (callback: (progress: unknown) => void) =>
+    onScanProgress: (callback: (progress: ScanProgress) => void) =>
       subscribe("library:scanProgress", callback),
   },
   window: {
@@ -162,7 +213,7 @@ const api = {
     quit: () => ipcRenderer.send("window:quit"),
   },
   desktopLyric: {
-    onConfigChange: (callback: (config: unknown) => void) =>
+    onConfigChange: (callback: (config: DesktopLyricSettings) => void) =>
       subscribe("desktopLyric:configChange", callback),
     setHeight: (height: number) => ipcRenderer.invoke("desktopLyric:setHeight", height),
     setMouseIgnore: (ignore: boolean) => ipcRenderer.send("desktopLyric:setMouseIgnore", ignore),
@@ -172,7 +223,7 @@ const api = {
       subscribe<boolean>("desktopLyric:cursorInside", callback),
   },
   dynamicIsland: {
-    onConfigChange: (callback: (config: unknown) => void) =>
+    onConfigChange: (callback: (config: DynamicIslandSettings) => void) =>
       subscribe("dynamicIsland:configChange", callback),
     move: (x: number, y: number) => ipcRenderer.send("dynamicIsland:move", x, y),
     saveState: () => ipcRenderer.send("dynamicIsland:saveState"),
@@ -233,12 +284,40 @@ const api = {
       subscribe<PluginPanelMessageArgs>("plugin:panel-message", callback),
   },
   apis: {
-    call: (platform: string, name: string, params?: Record<string, unknown>) =>
+    call: (platform: ApiPlatform, name: string, params?: Record<string, unknown>) =>
       ipcRenderer.invoke("apis:call", platform, name, params ?? {}),
-    clearSession: (platform: string) => ipcRenderer.invoke("apis:clearSession", platform),
-    openLoginWeb: (platform: string) => ipcRenderer.invoke("apis:openLoginWeb", platform),
-    setCookie: (platform: string, cookie: string) =>
+    clearSession: (platform: ApiPlatform) => ipcRenderer.invoke("apis:clearSession", platform),
+    openLoginWeb: (platform: ApiPlatform) => ipcRenderer.invoke("apis:openLoginWeb", platform),
+    setCookie: (platform: ApiPlatform, cookie: string) =>
       ipcRenderer.invoke("apis:setCookie", platform, cookie),
+    qqmusicLogin: () => ipcRenderer.invoke("qqmusic:login"),
+    qqmusicLogout: () => ipcRenderer.invoke("qqmusic:logout"),
+    qqmusicFetchStatus: () => ipcRenderer.invoke("qqmusic:fetchStatus"),
+  },
+  qqmusic: {
+    /** 打开 QQ 音乐网页登录窗口 */
+    login: () => ipcRenderer.invoke("qqmusic:login"),
+    /** 退出 QQ 音乐登录 */
+    logout: () => ipcRenderer.invoke("qqmusic:logout"),
+    /** 获取 QQ 音乐登录状态 */
+    getStatus: () => ipcRenderer.invoke("qqmusic:fetchStatus"),
+  },
+  spotify: {
+    login: () => ipcRenderer.invoke("spotify:login"),
+    logout: () => ipcRenderer.invoke("spotify:logout"),
+    getStatus: () => ipcRenderer.invoke("spotify:fetchStatus"),
+  },
+  kugou: {
+    logout: () => ipcRenderer.invoke("kugou:logout"),
+    getStatus: () => ipcRenderer.invoke("kugou:fetchStatus"),
+  },
+  bilibili: {
+    logout: () => ipcRenderer.invoke("bilibili:logout"),
+    getStatus: () => ipcRenderer.invoke("bilibili:fetchStatus"),
+    qrKey: () => ipcRenderer.invoke("bilibili:qrKey"),
+    qrCheck: (key: string) => ipcRenderer.invoke("bilibili:qrCheck", key),
+    pwdLogin: (username: string, password: string) =>
+      ipcRenderer.invoke("bilibili:pwdLogin", username, password),
   },
   cloud: {
     pickSongs: () => ipcRenderer.invoke("cloud:pickSongs"),
@@ -250,11 +329,15 @@ const api = {
   lyrics: {
     matchById: (platform: string, id: string) =>
       ipcRenderer.invoke("lyrics:matchById", platform, id),
-    matchByQuery: (platform: string, track: unknown) =>
+    matchByQuery: (platform: string, track: Track) =>
       ipcRenderer.invoke("lyrics:matchByQuery", platform, track),
-    fetchTTMLOverlay: (track: unknown, platform: string) =>
+    searchCandidates: (track: Track) =>
+      ipcRenderer.invoke("lyrics:searchCandidates", track),
+    commitManualMatch: (commit: { fingerprint: string; platform: string; platformId: string; extra?: unknown }) =>
+      ipcRenderer.invoke("lyrics:commitManualMatch", commit),
+    fetchTTMLOverlay: (track: Track, platform: string) =>
       ipcRenderer.invoke("lyrics:fetchTTMLOverlay", track, platform),
-    matchLocalTTML: (track: unknown) => ipcRenderer.invoke("lyrics:matchLocalTTML", track),
+    matchLocalTTML: (track: Track) => ipcRenderer.invoke("lyrics:matchLocalTTML", track),
     pickLyricRepoDir: () => ipcRenderer.invoke("lyrics:pickLyricRepoDir"),
   },
   comments: {
@@ -262,35 +345,37 @@ const api = {
     get: (args: MusicCommentQuery) => ipcRenderer.invoke("comments:get", args),
   },
   download: {
-    start: (req: unknown) => ipcRenderer.invoke("download:start", req),
+    start: (req: DownloadRequest) => ipcRenderer.invoke("download:start", req),
     cancel: (taskId: string) => ipcRenderer.invoke("download:cancel", taskId),
-    retry: (req: unknown) => ipcRenderer.invoke("download:retry", req),
+    retry: (req: DownloadRequest) => ipcRenderer.invoke("download:retry", req),
     remove: (taskId: string) => ipcRenderer.invoke("download:remove", taskId),
     clearFinished: () => ipcRenderer.invoke("download:clearFinished"),
     list: () => ipcRenderer.invoke("download:list"),
     pickDir: () => ipcRenderer.invoke("download:pickDir"),
     getDir: () => ipcRenderer.invoke("download:getDir"),
     resetDir: () => ipcRenderer.invoke("download:resetDir"),
-    onProgress: (callback: (data: unknown) => void) => subscribe("download:progress", callback),
-    onState: (callback: (task: unknown) => void) => subscribe("download:state", callback),
+    onProgress: (callback: (data: DownloadProgress) => void) => subscribe("download:progress", callback),
+    onState: (callback: (task: DownloadTask) => void) => subscribe("download:state", callback),
   },
   nowPlaying: {
-    update: (payload: unknown) => ipcRenderer.send("nowPlaying:update", payload),
+    update: (payload: NowPlayingUpdatePayload) => ipcRenderer.send("nowPlaying:update", payload),
     requestSnapshot: () => ipcRenderer.invoke("nowPlaying:requestSnapshot"),
     setLyricOffset: (trackId: string, offsetMs: number) =>
       ipcRenderer.send("nowPlaying:setLyricOffset", trackId, offsetMs),
-    onTrackChange: (callback: (data: unknown) => void) =>
+    onTrackChange: (callback: (data: { track: Track | null }) => void) =>
       subscribe("nowPlaying:track-change", callback),
-    onLyricChange: (callback: (snapshot: unknown) => void) =>
+    onLyricChange: (callback: (snapshot: NowPlayingSnapshot) => void) =>
       subscribe("nowPlaying:lyric-change", callback),
-    onPositionSync: (callback: (data: unknown) => void) =>
+    onPositionSync: (callback: (data: NowPlayingPositionSync) => void) =>
       subscribe("nowPlaying:position-sync", callback),
-    onLyricOffsetChange: (callback: (data: unknown) => void) =>
+    onLyricOffsetChange: (callback: (data: NowPlayingLyricOffsetSync) => void) =>
       subscribe("nowPlaying:lyric-offset-change", callback),
   },
   theme: {
     pickBackgroundImage: (): Promise<string | null> =>
       ipcRenderer.invoke("theme:pickBackgroundImage"),
+    pickCustomVideo: (): Promise<string | null> =>
+      ipcRenderer.invoke("theme:pickCustomVideo"),
     clearBackgroundImages: (): Promise<void> => ipcRenderer.invoke("theme:clearBackgroundImages"),
   },
   cache: {
@@ -367,6 +452,8 @@ const api = {
     verifyAuthKey: (key: string) => ipcRenderer.invoke("listenTogether:verifyAuthKey", key),
     kickMember: (roomId: string, memberId: string) =>
       ipcRenderer.invoke("listenTogether:kickMember", roomId, memberId),
+    blacklistMember: (roomId: string, memberId: string) =>
+      ipcRenderer.invoke("listenTogether:blacklistMember", roomId, memberId),
     decodeInviteCode: (code: string) => ipcRenderer.invoke("listenTogether:decodeInviteCode", code),
   },
 };

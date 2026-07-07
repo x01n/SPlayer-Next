@@ -47,23 +47,34 @@ let lastRef: Float32Array | null = null;
 /** 上一次推送到达的时间戳 */
 let lastUpdate = 0;
 
+/** 解析后的颜色 */
+const resolvedColor = ref("rgba(255, 255, 255, 0.6)");
+
 /** 解析颜色字符串为带透明度的 rgba */
-const resolvedColor = computed((): string => {
+const parseColor = (color: string, opacity: number): string => {
   try {
     const div = document.createElement("div");
-    div.style.color = props.color;
+    div.style.color = color;
     document.body.appendChild(div);
     const computed = getComputedStyle(div).color;
     document.body.removeChild(div);
     const rgbMatch = computed.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (rgbMatch) {
-      return `rgba(${rgbMatch[1]}, ${rgbMatch[2]}, ${rgbMatch[3]}, ${props.opacity})`;
+      return `rgba(${rgbMatch[1]}, ${rgbMatch[2]}, ${rgbMatch[3]}, ${opacity})`;
     }
   } catch {
     // 解析失败回退
   }
-  return `rgba(255, 255, 255, ${props.opacity})`;
-});
+  return `rgba(255, 255, 255, ${opacity})`;
+};
+
+watch(
+  () => [props.color, props.opacity],
+  ([color, opacity]) => {
+    resolvedColor.value = parseColor(color as string, opacity as number);
+  },
+  { immediate: true },
+);
 
 /** 调整画布大小 */
 const resizeCanvas = (): void => {
@@ -175,16 +186,26 @@ watch(
 onMounted(() => {
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
+  document.addEventListener("visibilitychange", onVisibilityChange);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", resizeCanvas);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   stopCapture();
   prev.fill(0);
   curr.fill(0);
   display.fill(0);
   lastRef = null;
 });
+
+const onVisibilityChange = (): void => {
+  if (document.hidden) {
+    stopCapture();
+  } else if (props.enabled && props.playing) {
+    startCapture();
+  }
+};
 </script>
 
 <template>

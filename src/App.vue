@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useListenTogetherProtocol } from "@/composables/useListenTogetherProtocol";
 import { useSettingsStore } from "@/stores/settings";
+
+useListenTogetherProtocol();
 
 watchEffect(() => {
   const v = useSettingsStore().appearance.fontFamily;

@@ -33,7 +33,7 @@ export const useDragSort = (options: DragSortOptions) => {
   const isDragging = ref(false);
   const draggedIndex = ref(-1);
   const targetIndex = ref(-1);
-  const dropIndicator = reactive({ index: -1, position: "none" as string });
+  const dropIndicator = reactive({ index: -1, position: "none" as "none" | "top" | "bottom" });
   const dragLabelData = ref<{ name: string } | null>(null);
   const dragLabelPosition = reactive({ top: 0, left: 0 });
   let listRect: DOMRect | null = null;

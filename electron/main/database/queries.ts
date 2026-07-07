@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Track, Artist, Album, AudioQuality } from "@shared/types/player";
 import type { AlbumSummary, ArtistSummary } from "@shared/types/library";
 import { getDb } from "./index";
@@ -24,6 +23,20 @@ interface TrackRow {
   scanned_at: number;
 }
 
+/**
+ * 安全解析 JSON 字符串，失败时返回默认值
+ * @param json - JSON 字符串
+ * @param defaultValue - 解析失败时的默认值
+ * @returns 解析结果或默认值
+ */
+const safeJsonParse = <T>(json: string, defaultValue: T): T => {
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return defaultValue;
+  }
+};
+
 /** 将数据库行解析为 Track */
 const rowToTrack = (row: TrackRow): Track => {
   const quality: AudioQuality | undefined =
@@ -43,8 +56,8 @@ const rowToTrack = (row: TrackRow): Track => {
     path: row.path,
     title: row.title,
     track: row.track ?? undefined,
-    artists: JSON.parse(row.artists) as Artist[],
-    album: row.album ? (JSON.parse(row.album) as Album) : undefined,
+    artists: safeJsonParse<Artist[]>(row.artists, []),
+    album: row.album ? safeJsonParse<Album>(row.album, { name: row.album }) : undefined,
     duration: row.duration,
     cover: row.cover ?? undefined,
     fileSize: row.file_size ?? undefined,
@@ -168,23 +181,32 @@ export const deleteTracksByPaths = (paths: string[]): void => {
   tx();
 };
 
-/** 模糊搜索曲目（title / artists / album） */
+/** 模糊搜索曲目（title / artists / album），最多返回 200 条 */
 export const searchTracks = (query: string): Track[] => {
+  if (!query || query.trim().length === 0) return [];
   const escaped = query.replace(/[%_\\]/g, "\\$&");
   const pattern = `%${escaped}%`;
   const rows = getDb()
     .prepare(
-      "SELECT * FROM tracks WHERE title LIKE ? ESCAPE '\\' OR artists LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\'",
+      "SELECT * FROM tracks WHERE title LIKE ? ESCAPE '\\' OR artists LIKE ? ESCAPE '\\' OR album LIKE ? ESCAPE '\\' LIMIT 200",
     )
     .all(pattern, pattern, pattern) as TrackRow[];
   return rows.map(rowToTrack);
 };
 
-/** 删除指定目录下的所有曲目 */
+/** SQLite 最大参数数量（默认 999，留余量取 900） */
+const SQLITE_MAX_VARIABLE_NUMBER = 900;
+
+/**
+ * 删除指定目录下的所有曲目
+ * 同时处理正斜杠和反斜杠路径分隔符，兼容跨平台路径格式
+ * @param dir - 目录路径
+ */
 export const deleteTracksByDir = (dir: string): void => {
-  const prefix = dir.endsWith("/") || dir.endsWith("\\") ? dir : dir + path.sep;
+  const normalizedDir = dir.replace(/\\/g, "/");
+  const prefix = normalizedDir.endsWith("/") ? normalizedDir : `${normalizedDir}/`;
   getDb()
-    .prepare("DELETE FROM tracks WHERE path LIKE ?")
+    .prepare("DELETE FROM tracks WHERE REPLACE(path, '\\\\', '/') LIKE ?")
     .run(prefix + "%");
 };
 
@@ -194,18 +216,19 @@ export const getAlbumList = (): AlbumSummary[] => {
     .prepare(
       `SELECT
          json_extract(album, '$.name') AS name,
+         json_extract(album, '$.artist') AS artist,
          MAX(CASE WHEN cover IS NOT NULL THEN cover END) AS cover,
-         MAX(artists) AS artists,
          COUNT(*) AS trackCount
        FROM tracks
        WHERE album IS NOT NULL AND json_extract(album, '$.name') IS NOT NULL
        GROUP BY name`,
     )
-    .all() as { name: string; cover: string | null; artists: string; trackCount: number }[];
+    .all() as { name: string; artist: string | null; cover: string | null; trackCount: number }[];
+
   return rows.map((row) => ({
     name: row.name,
     cover: row.cover ?? undefined,
-    artist: (JSON.parse(row.artists) as Artist[]).map((a) => a.name).join(" / "),
+    artist: row.artist ?? undefined,
     trackCount: row.trackCount,
   }));
 };
@@ -250,12 +273,32 @@ export const getArtistTracks = (artistName: string): Track[] => {
   return rows.map(rowToTrack);
 };
 
-/** 按 ID 批量获取曲目 */
+/**
+ * 按 ID 批量获取曲目
+ * 当 ID 数量超过 SQLite 参数限制时自动分批查询
+ * @param ids - 曲目 ID 数组
+ * @returns 曲目列表
+ */
 export const getTracksByIds = (ids: string[]): Track[] => {
   if (ids.length === 0) return [];
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = getDb()
-    .prepare(`SELECT * FROM tracks WHERE id IN (${placeholders})`)
-    .all(...ids) as TrackRow[];
-  return rows.map(rowToTrack);
+
+  const results: Track[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < ids.length; i += SQLITE_MAX_VARIABLE_NUMBER) {
+    const batch = ids.slice(i, i + SQLITE_MAX_VARIABLE_NUMBER);
+    const placeholders = batch.map(() => "?").join(",");
+    const rows = getDb()
+      .prepare(`SELECT * FROM tracks WHERE id IN (${placeholders})`)
+      .all(...batch) as TrackRow[];
+
+    for (const row of rows) {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        results.push(rowToTrack(row));
+      }
+    }
+  }
+
+  return results;
 };

@@ -104,5 +104,9 @@ export const dispatch = (id: HotkeyActionId): boolean => {
   if (!handler) return false;
   const result = handler();
   if (result === false) return false;
+  // 异步 handler 若 reject 应捕获，避免未处理 rejection
+  if (result instanceof Promise) {
+    result.catch((err) => console.warn(`[hotkey] action "${id}" failed:`, err));
+  }
   return true;
 };

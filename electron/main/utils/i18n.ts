@@ -19,6 +19,8 @@ interface MainMessages {
   openTaskbarLyric: string;
   closeTaskbarLyric: string;
   quit: string;
+  selectMusicFolder: string;
+  selectCoverImage: string;
 }
 
 const messages: Record<LocaleCode, MainMessages> = {
@@ -41,6 +43,8 @@ const messages: Record<LocaleCode, MainMessages> = {
     openTaskbarLyric: "开启任务栏歌词",
     closeTaskbarLyric: "关闭任务栏歌词",
     quit: "退出",
+    selectMusicFolder: "选择音乐文件夹",
+    selectCoverImage: "选择封面图片",
   },
   "en-US": {
     prev: "Previous",
@@ -61,13 +65,15 @@ const messages: Record<LocaleCode, MainMessages> = {
     openTaskbarLyric: "Open Taskbar Lyric",
     closeTaskbarLyric: "Close Taskbar Lyric",
     quit: "Quit",
+    selectMusicFolder: "Select Music Folder",
+    selectCoverImage: "Select Cover Image",
   },
 };
 
 let currentLocale: LocaleCode = "zh-CN";
 
 /** 获取翻译文本 */
-export const t = (key: keyof MainMessages): string => messages[currentLocale][key];
+export const t = (key: keyof MainMessages): string => messages[currentLocale]?.[key] ?? key;
 
 /** 切换语言，返回是否发生变化 */
 export const setLocale = (locale: LocaleCode): boolean => {

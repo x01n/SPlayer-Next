@@ -144,11 +144,12 @@ const isAtMe = (msg: ListenTogetherChatMessage): boolean => {
 
 /** 监听新消息，检查 @ 和引用提醒 */
 watch(
-  () => props.messages.length,
-  (newLen, oldLen) => {
-    if (newLen <= (oldLen ?? 0)) return;
+  () => [props.messages.length, props.messages[props.messages.length - 1]?.id],
+  ([newLen], [oldLen]) => {
+    if (typeof newLen !== "number" || typeof oldLen !== "number") return;
+    if (newLen <= oldLen) return;
     const newMsg = props.messages[newLen - 1];
-    if (isAtMe(newMsg)) {
+    if (newMsg && isAtMe(newMsg)) {
       toast.info(
         `${newMsg.senderNickname} ${t("listenTogether.page.chat.mentionedYou") ?? "提到了你"}`,
       );
@@ -183,7 +184,7 @@ const handleSend = (): void => {
   const content = chatInput.value.trim();
   if (!content) return;
   if (content.length > MAX_MESSAGE_LENGTH) {
-    chatInput.value = content.slice(0, MAX_MESSAGE_LENGTH);
+    toast.error(t("listenTogether.page.chat.messageTooLong") ?? "消息超过最大长度限制");
     return;
   }
   const mentions = parseMentions(content);

@@ -6,6 +6,7 @@
 import type { WSContext } from "hono/ws";
 import type {
   ListenTogetherClientMessage,
+  ListenTogetherRoom,
   ListenTogetherServerMessage,
 } from "@shared/types/listenTogether";
 import { serverLog } from "@main/utils/logger";
@@ -31,6 +32,7 @@ import {
   leaveRoom,
   getLastBroadcastSnapshot,
   setLastBroadcastSnapshot,
+  stopSyncTimer,
   wsTokenMap,
   applyQueueAction,
   updateMemberAudioSource,
@@ -120,6 +122,9 @@ export const handleListenTogetherMessage = async (
       serverLog.info("[ListenTogether] 分发到撤回消息处理器");
       handleRecall(ws, msg);
       break;
+    case "chunkAck":
+      // 客户端分片确认，当前服务端无需处理，静默忽略
+      break;
     case "heartbeat":
       handleHeartbeat(ws);
       break;
@@ -193,10 +198,13 @@ const handleJoin = async (ws: WSContext, msg: ListenTogetherClientMessage): Prom
   console.log(`[ListenTogether] 已发送加入成功响应: token=${result.token}`);
   serverLog.info(`[ListenTogether] 已发送加入成功响应: token=${result.token}`);
 
-  // 广播新成员加入（房主rejoin时不广播，避免重复通知）
   const memberInfo = getMemberByToken(result.token);
-  const isHostRejoin =
-    memberInfo?.member.id === result.room.hostId && result.room.members.length === 1;
+  const isHostRejoin = memberInfo?.member.id === result.room.hostId;
+  if (isHostRejoin) {
+    broadcastRoomUpdate(result.room, ws);
+  }
+
+  // 广播新成员加入（房主rejoin时不广播，避免重复通知）
   if (!isHostRejoin) {
     const memberJoinedMsg: ListenTogetherServerMessage = {
       kind: "memberJoined",
@@ -297,22 +305,12 @@ const handleLeave = (ws: WSContext): void => {
     `[ListenTogether] 成员已离开房间: token=${token}, wasHost=${wasHost}, 剩余成员数=${room.members.length}`,
   );
 
-  // 广播成员离开（房主离开时房间已关闭，无需广播）
-  if (!wasHost) {
-    const memberLeftMsg: ListenTogetherServerMessage = {
-      kind: "memberLeft",
-      data: { memberId: member.id, memberCount: room.members.length },
-    };
-    broadcastToRoom(room.id, memberLeftMsg);
-    console.log(
-      `[ListenTogether] 广播成员离开: roomId=${room.id}, memberId=${member.id}, 剩余成员数=${room.members.length}`,
-    );
-    serverLog.info(
-      `[ListenTogether] 广播成员离开: roomId=${room.id}, memberId=${member.id}, 剩余成员数=${room.members.length}`,
-    );
-  } else {
-    console.log(`[ListenTogether] 房主离开，房间已关闭，跳过广播: roomId=${room.id}`);
-    serverLog.info(`[ListenTogether] 房主离开，房间已关闭，跳过广播: roomId=${room.id}`);
+  // 房主离开，停止同步定时器并保留房间等待重连
+  if (wasHost) {
+    stopSyncTimer(room.id);
+    broadcastRoomUpdate(room);
+    console.log(`[ListenTogether] 房主主动离开，等待房主重连: roomId=${room.id}`);
+    serverLog.info(`[ListenTogether] 房主主动离开，等待房主重连: roomId=${room.id}`);
   }
 };
 
@@ -341,7 +339,7 @@ const handleSync = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   const { room, member } = info;
   const payload = msg.payload as {
-    track?: Record<string, unknown>;
+    track?: Record<string, unknown> | null;
     position?: number;
     isPlaying?: boolean;
   } | null;
@@ -373,10 +371,8 @@ const handleSync = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
     return;
   }
 
-  // 使用传入的 track，但如果传入的 track 为 falsy 且当前已有 track，不覆盖为 null
-  const incomingTrack = payload.track;
-  const track = incomingTrack
-    ? (incomingTrack as unknown as Parameters<typeof setRoomPlayback>[1])
+  const track = Object.hasOwn(payload, "track")
+    ? (payload.track as unknown as Parameters<typeof setRoomPlayback>[1])
     : room.currentTrack;
 
   console.log(
@@ -769,17 +765,9 @@ const handleKick = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
   );
 
   if (kickMember(room.id, member.id, payload.memberId)) {
-    // 广播成员被踢出
-    const kickedMsg: ListenTogetherServerMessage = {
-      kind: "kicked",
-      data: { memberId: payload.memberId, reason: "被房主踢出" },
-    };
-    broadcastToRoom(room.id, kickedMsg);
-    console.log(
-      `[ListenTogether] 踢出成员成功并已广播: roomId=${room.id}, memberId=${payload.memberId}`,
-    );
+    console.log(`[ListenTogether] 踢出成员成功: roomId=${room.id}, memberId=${payload.memberId}`);
     serverLog.info(
-      `[ListenTogether] 踢出成员成功并已广播: roomId=${room.id}, memberId=${payload.memberId}`,
+      `[ListenTogether] 踢出成员成功: roomId=${room.id}, memberId=${payload.memberId}`,
     );
   } else {
     console.log(`[ListenTogether] 踢出成员失败: roomId=${room.id}, memberId=${payload.memberId}`);
@@ -839,17 +827,9 @@ const handleBlacklist = (ws: WSContext, msg: ListenTogetherClientMessage): void 
   );
 
   if (blacklistMember(room.id, member.id, payload.memberId)) {
-    // 广播成员被拉黑
-    const blacklistedMsg: ListenTogetherServerMessage = {
-      kind: "blacklisted",
-      data: { memberId: payload.memberId, reason: "被房主拉黑" },
-    };
-    broadcastToRoom(room.id, blacklistedMsg);
-    console.log(
-      `[ListenTogether] 拉黑成员成功并已广播: roomId=${room.id}, memberId=${payload.memberId}`,
-    );
+    console.log(`[ListenTogether] 拉黑成员成功: roomId=${room.id}, memberId=${payload.memberId}`);
     serverLog.info(
-      `[ListenTogether] 拉黑成员成功并已广播: roomId=${room.id}, memberId=${payload.memberId}`,
+      `[ListenTogether] 拉黑成员成功: roomId=${room.id}, memberId=${payload.memberId}`,
     );
   } else {
     console.log(`[ListenTogether] 拉黑成员失败: roomId=${room.id}, memberId=${payload.memberId}`);
@@ -950,6 +930,14 @@ const sendError = (ws: WSContext, error: string): void => {
   }
 };
 
+const broadcastRoomUpdate = (room: ListenTogetherRoom, excludeWs?: WSContext): void => {
+  const msg: ListenTogetherServerMessage = {
+    kind: "roomUpdate",
+    data: room,
+  };
+  broadcastToRoom(room.id, msg, excludeWs);
+};
+
 /** 一起听 WS 连接关闭处理 */
 export const handleListenTogetherClose = (ws: WSContext): void => {
   console.log("[ListenTogether] WebSocket连接关闭");
@@ -976,7 +964,7 @@ export const handleListenTogetherClose = (ws: WSContext): void => {
 
     // 先注销WS
     wsTokenMap.delete(ws);
-    leaveRoom(token);
+    const leaveResult = leaveRoom(token);
     console.log(
       `[ListenTogether] WS关闭后成员已离开: token=${token}, 剩余成员数=${room.members.length}`,
     );
@@ -984,22 +972,12 @@ export const handleListenTogetherClose = (ws: WSContext): void => {
       `[ListenTogether] WS关闭后成员已离开: token=${token}, 剩余成员数=${room.members.length}`,
     );
 
-    // 广播成员离开（房主离开时房间已关闭）
-    if (!wasHost) {
-      const memberLeftMsg: ListenTogetherServerMessage = {
-        kind: "memberLeft",
-        data: { memberId: member.id, memberCount: room.members.length },
-      };
-      broadcastToRoom(room.id, memberLeftMsg);
-      console.log(
-        `[ListenTogether] WS关闭广播成员离开: roomId=${room.id}, memberId=${member.id}, 剩余成员数=${room.members.length}`,
-      );
-      serverLog.info(
-        `[ListenTogether] WS关闭广播成员离开: roomId=${room.id}, memberId=${member.id}, 剩余成员数=${room.members.length}`,
-      );
-    } else {
-      console.log(`[ListenTogether] WS关闭房主离开，房间已关闭: roomId=${room.id}`);
-      serverLog.info(`[ListenTogether] WS关闭房主离开，房间已关闭: roomId=${room.id}`);
+    // 房主离开，停止同步定时器（房间保留但房主不再同步播放状态）
+    if (leaveResult?.wasHost) {
+      stopSyncTimer(room.id);
+      broadcastRoomUpdate(room);
+      console.log(`[ListenTogether] 房主WS断开，等待房主重连: roomId=${room.id}`);
+      serverLog.info(`[ListenTogether] 房主WS断开，等待房主重连: roomId=${room.id}`);
     }
   } else {
     console.log(`[ListenTogether] WS关闭处理: 成员信息不存在，直接注销WS: token=${token}`);
@@ -1043,7 +1021,7 @@ const handleQueue = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   try {
     const result = applyQueueAction(room.id, member.id, payload.action, payload.data);
-    if (!result) {
+    if (result === null) {
       sendError(ws, "队列操作失败");
       return;
     }

@@ -3,6 +3,7 @@ import type { Track } from "@shared/types/player";
 import type { Collection, PlaylistRecord } from "@/types/collection";
 
 const db = localforage.createInstance({ name: "splayer", storeName: "playlists" });
+const libraryApi = window.api?.library;
 
 const generateId = () => `pl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -32,7 +33,14 @@ export const usePlaylistStore = defineStore("playlist", () => {
     if (record.trackIds.length === 0) {
       return { ...meta, tracks: [], trackCount: 0 };
     }
-    const res = await window.api.library.getTracksByIds(record.trackIds);
+    if (!libraryApi) {
+      return {
+        ...meta,
+        tracks: [],
+        trackCount: 0,
+      };
+    }
+    const res = await libraryApi.getTracksByIds(record.trackIds);
     const fetched = res.success && res.data ? res.data : [];
     const byId = new Map<string, Track>(fetched.map((t) => [t.id, t]));
     const tracks: Track[] = [];

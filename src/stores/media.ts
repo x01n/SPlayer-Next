@@ -57,9 +57,9 @@ export const useMediaStore = defineStore("media", () => {
    * @param newTrack - 新的歌曲信息
    * @param newDetail - 新的歌曲详细信息；省略则保留现有 detail
    */
-  const setTrack = (newTrack: Track, newDetail?: TrackDetail): void => {
+  const setTrack = (newTrack: Track, newDetail?: TrackDetail | null): void => {
     track.value = newTrack;
-    if (newDetail) detail.value = newDetail;
+    detail.value = newDetail ?? null;
   };
 
   /**

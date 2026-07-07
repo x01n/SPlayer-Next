@@ -4,6 +4,7 @@
  * @returns 格式化后的时间
  */
 export const formatTime = (ms: number): string => {
+  if (!Number.isFinite(ms)) return "--:--";
   const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -18,6 +19,7 @@ export const formatTime = (ms: number): string => {
  * @returns 格式化后的时间
  */
 export const formatTimeWithDeci = (ms: number): string => {
+  if (!Number.isFinite(ms)) return "--:--.0";
   const totalDeci = Math.floor(ms / 100);
   const min = Math.floor(totalDeci / 600);
   const sec = Math.floor(totalDeci / 10) % 60;
@@ -31,7 +33,7 @@ export const formatTimeWithDeci = (ms: number): string => {
  * @returns 本地化日期文本
  */
 export const formatDate = (time?: number): string => {
-  if (!time) return "";
+  if (time == null || !Number.isFinite(time)) return "";
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "2-digit",
@@ -45,6 +47,7 @@ export const formatDate = (time?: number): string => {
  * @returns 格式化后的时间
  */
 export const formatCountdown = (totalSec: number): string => {
+  if (!Number.isFinite(totalSec)) return "--:--";
   const safe = Math.max(0, Math.floor(totalSec));
   const h = Math.floor(safe / 3600);
   const m = Math.floor((safe % 3600) / 60);

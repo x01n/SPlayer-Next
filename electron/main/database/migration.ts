@@ -3,15 +3,32 @@ import type Database from "better-sqlite3";
 /** 当前 schema 版本 */
 const SCHEMA_VERSION = 3;
 
-type TableInfoRow = { name: string };
+/** PRAGMA table_info 返回的列信息 */
+interface TableInfoRow {
+  cid: number;
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: unknown;
+  pk: number;
+}
 
-/** 判断表是否存在指定列 */
+/**
+ * 判断表是否存在指定列
+ * @param d - 数据库实例
+ * @param table - 表名
+ * @param column - 列名
+ * @returns 是否存在
+ */
 const hasColumn = (d: Database.Database, table: string, column: string): boolean => {
-  const rows = d.prepare(`PRAGMA table_info(${table})`).all() as TableInfoRow[];
+  const rows = d.prepare("SELECT name FROM pragma_table_info(?)").all(table) as TableInfoRow[];
   return rows.some((r) => r.name === column);
 };
 
-/** 执行数据库迁移 */
+/**
+ * 执行数据库迁移
+ * @param d - 数据库实例
+ */
 export const migrate = (d: Database.Database): void => {
   const version = d.pragma("user_version", { simple: true }) as number;
   let v = version;
@@ -41,7 +58,10 @@ export const migrate = (d: Database.Database): void => {
     d.exec("ALTER TABLE lyric_match_cache ADD COLUMN extra TEXT");
   }
 
-  if (v < SCHEMA_VERSION) v = SCHEMA_VERSION;
+  // 确保版本号同步到当前 schema 版本
+  if (v !== SCHEMA_VERSION) {
+    v = SCHEMA_VERSION;
+  }
   if (v !== version) {
     d.pragma(`user_version = ${v}`);
   }

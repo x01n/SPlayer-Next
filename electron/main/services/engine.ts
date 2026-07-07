@@ -1,6 +1,7 @@
 import { loadNativeModule } from "@main/utils/nativeLoader";
 import { getCoverCacheDir, isDev } from "@main/utils/config";
 import { playerLog, nativeLogsDir } from "@main/utils/logger";
+import { store } from "@main/store";
 
 type AudioEngineModule = typeof import("@splayer/audio-engine");
 type PlayerInstance = InstanceType<AudioEngineModule["AudioPlayer"]>;
@@ -25,10 +26,12 @@ export const getEngine = (): AudioEngineModule => {
 
 /**
  * 注册播放器实例创建后的回调（在创建/重建时都会触发）
- * 在 getPlayer 首次调用前注册
+ * 在 getPlayer 首次调用前注册；同一回调只注册一次，防止重复
  */
 export const onPlayerCreated = (callback: (inst: PlayerInstance) => void): void => {
-  onCreatedCallbacks.push(callback);
+  if (!onCreatedCallbacks.includes(callback)) {
+    onCreatedCallbacks.push(callback);
+  }
 };
 
 /** 获取播放器实例 */
@@ -44,6 +47,16 @@ export const getPlayer = (): PlayerInstance => {
   }
   return playerInstance;
 };
+
+/** 实例创建后自动同步均衡器配置 */
+onPlayerCreated((inst) => {
+  const eq = store.get("player.equalizer");
+  if (eq) {
+    inst.setEqualizerBands(eq.bands);
+    inst.setPreampGain(eq.preamp);
+    inst.setEqualizerEnabled(eq.enabled);
+  }
+});
 
 /** 销毁播放器实例，下次 getPlayer 时自动重建 */
 export const resetPlayer = (): void => {

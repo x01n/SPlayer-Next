@@ -14,23 +14,25 @@ export const useHotkeyStore = defineStore("hotkey", () => {
   const globalEnabled = ref(true);
   const conflicts = ref<HotkeyConflict[]>([]);
   const initialized = ref(false);
+  const electronApi = window.api;
 
   let unsubscribeConflicts: (() => void) | null = null;
 
   /** 初始化 */
   const init = async (): Promise<void> => {
     if (initialized.value) return;
+    initialized.value = true;
+    if (!electronApi) return;
     const [cfg, initialConflicts] = await Promise.all([
-      window.api.hotkey.getAll(),
-      window.api.hotkey.getConflicts(),
+      electronApi.hotkey.getAll(),
+      electronApi.hotkey.getConflicts(),
     ]);
     applyConfig(cfg);
     conflicts.value = initialConflicts;
     unsubscribeConflicts?.();
-    unsubscribeConflicts = window.api.hotkey.onConflicts((list) => {
+    unsubscribeConflicts = electronApi.hotkey.onConflicts((list) => {
       conflicts.value = list;
     });
-    initialized.value = true;
   };
 
   /** 应用配置 */
@@ -41,22 +43,25 @@ export const useHotkeyStore = defineStore("hotkey", () => {
 
   /** 单项更新 */
   const updateBinding = async (id: HotkeyActionId, binding: HotkeyBinding): Promise<void> => {
-    applyConfig(await window.api.hotkey.set(id, binding));
+    if (!electronApi) return;
+    applyConfig(await electronApi.hotkey.set(id, binding));
   };
 
   /** 重置 */
   const resetBinding = async (id?: HotkeyActionId): Promise<void> => {
-    applyConfig(await window.api.hotkey.reset(id));
+    if (!electronApi) return;
+    applyConfig(await electronApi.hotkey.reset(id));
   };
 
   /** 切换全局快捷键总开关 */
   const setGlobalEnabled = async (enabled: boolean): Promise<void> => {
-    applyConfig(await window.api.hotkey.setGlobalEnabled(enabled));
+    if (!electronApi) return;
+    applyConfig(await electronApi.hotkey.setGlobalEnabled(enabled));
   };
 
   /** 探测某 accelerator 在系统层是否可注册 */
   const probe = async (accelerator: string): Promise<boolean> => {
-    return window.api.hotkey.probe(accelerator);
+    return electronApi ? electronApi.hotkey.probe(accelerator) : true;
   };
 
   // HMR / store dispose 时清理监听，避免开发期累积

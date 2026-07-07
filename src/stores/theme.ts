@@ -1,4 +1,5 @@
 import type { ThemeMode, ThemeSource, AppearanceStyle, ImageBackgroundConfig } from "@/types/theme";
+import { getCurrentScope, onScopeDispose } from "vue";
 import {
   generatePalette,
   applyThemeToDOM,
@@ -35,6 +36,7 @@ export const useThemeStore = defineStore(
     });
     /** 从背景图提取的主色 */
     const imageBackgroundColor = ref<string | null>(null);
+    let stopThemeWatchers: (() => void) | null = null;
 
     /** 实际生效的风格 */
     const effectiveStyle = computed<AppearanceStyle>(() =>
@@ -111,23 +113,36 @@ export const useThemeStore = defineStore(
 
     /** 初始化 */
     const init = (): void => {
+      stopThemeWatchers?.();
+
       if (typeof customColor.value !== "string" || !customColor.value.startsWith("#")) {
         customColor.value = DEFAULT_PRIMARY;
       }
-      // 启动时若已有背景图
       if (imageBackground.src) void refreshImageColor(imageBackground.src);
       apply();
-      // 监听背景图变化
-      watch(
+
+      const stopWatchBg = watch(
         () => imageBackground.src,
         (src) => {
           void refreshImageColor(src);
         },
       );
-      // 影响渲染的值变化
-      watch([isDark, effectiveColor, source, effectiveGlobalTint, coverColor, effectiveStyle], () =>
-        apply(),
+      const stopWatchTheme = watch(
+        [isDark, effectiveColor, source, effectiveGlobalTint, coverColor, effectiveStyle],
+        () => apply(),
       );
+      const cleanup = (): void => {
+        stopWatchBg();
+        stopWatchTheme();
+        if (stopThemeWatchers === cleanup) stopThemeWatchers = null;
+      };
+      stopThemeWatchers = cleanup;
+
+      if (getCurrentScope()) {
+        onScopeDispose(() => {
+          if (stopThemeWatchers === cleanup) cleanup();
+        });
+      }
     };
 
     return {

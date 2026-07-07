@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useStatusStore } from "@/stores/status";
 import * as abLoop from "@/services/abLoop";
+import * as playback from "@/services/playback";
 import { formatTimeWithDeci } from "@/utils/time";
 
 defineProps<{ open: boolean }>();
@@ -28,8 +29,8 @@ const showWarning = computed(() => {
 const formatPoint = (ms: number | null): string =>
   ms === null ? "--:--.-" : formatTimeWithDeci(ms);
 
-const onSetAFromCurrent = (): void => abLoop.setA(status.position);
-const onSetBFromCurrent = (): void => abLoop.setB(status.position);
+const onSetAFromCurrent = (): void => abLoop.setA(playback.getCurrentTime());
+const onSetBFromCurrent = (): void => abLoop.setB(playback.getCurrentTime());
 
 const onToggleEnable = (v: boolean): void => abLoop.setEnabled(v);
 </script>

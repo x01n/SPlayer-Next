@@ -15,10 +15,13 @@ import { getCoverCacheDir } from "@main/utils/config";
 import { libraryLog } from "@main/utils/logger";
 
 let scanning = false;
+let scanPromise: Promise<void> | null = null;
 
 /**
  * Rust 扫描/探测结果 → 数据库 Upsert 记录
  * id 由文件路径哈希生成，标签编辑回灌与扫描共用此规则
+ * @param track - Rust 扫描结果
+ * @returns Upsert 记录
  */
 export const scannedToUpsert = (track: JsScannedTrack): UpsertTrack => {
   const id = createHash("sha256").update(track.path).digest("hex").slice(0, 16);
@@ -67,52 +70,77 @@ export const startScan = (dirs: string[], incremental = true): void => {
   const incrementalData = incremental ? getFileRecords() : undefined;
 
   const engine = getEngine();
-  engine.scanDirs(
-    dirs,
-    (event: JsScanEvent) => {
-      switch (event.eventType) {
-        case "progress": {
-          // 已取消则丢弃滞后批次，避免写回已删除目录的曲目
-          if (!scanning) break;
-          // 批量写入数据库
-          if (event.tracks && event.tracks.length > 0) {
-            upsertTracks(event.tracks.map(scannedToUpsert));
+  scanPromise = new Promise<void>((resolve) => {
+    engine.scanDirs(
+      dirs,
+      (event: JsScanEvent) => {
+        switch (event.eventType) {
+          case "progress": {
+            // 已取消则丢弃滞后批次，避免写回已删除目录的曲目
+            if (!scanning) break;
+            // 批量写入数据库
+            if (event.tracks && event.tracks.length > 0) {
+              upsertTracks(event.tracks.map(scannedToUpsert));
+            }
+            broadcast("library:scanProgress", {
+              phase: "scanning",
+              total: event.total,
+              scanned: event.scanned,
+              current: event.current,
+            });
+            break;
           }
-          broadcast("library:scanProgress", {
-            phase: "scanning",
-            total: event.total,
-            scanned: event.scanned,
-            current: event.current,
-          });
-          break;
-        }
-        case "done": {
-          // 清理已删除的文件
-          if (event.removedPaths && event.removedPaths.length > 0) {
-            deleteTracksByPaths(event.removedPaths);
-            libraryLog.info(`清理 ${event.removedPaths.length} 个已删除文件`);
+          case "done": {
+            // 清理已删除的文件
+            if (event.removedPaths && event.removedPaths.length > 0) {
+              deleteTracksByPaths(event.removedPaths);
+              libraryLog.info(`清理 ${event.removedPaths.length} 个已删除文件`);
+            }
+            scanning = false;
+            broadcast("library:scanProgress", {
+              phase: "done",
+              total: event.total,
+              scanned: event.scanned,
+            });
+            libraryLog.info(`扫描完成: ${event.scanned}/${event.total} 个文件`);
+            resolve();
+            break;
           }
-          scanning = false;
-          broadcast("library:scanProgress", {
-            phase: "done",
-            total: event.total,
-            scanned: event.scanned,
-          });
-          libraryLog.info(`扫描完成: ${event.scanned}/${event.total} 个文件`);
-          break;
+          case "error": {
+            scanning = false;
+            const errorEvent = event as JsScanEvent & { error?: string };
+            broadcast("library:scanProgress", {
+              phase: "error",
+              total: event.total,
+              scanned: event.scanned,
+              error: errorEvent.error ?? "扫描出错",
+            });
+            libraryLog.error(`扫描出错: ${errorEvent.error ?? "未知错误"}`);
+            resolve();
+            break;
+          }
+          default: {
+            // 未知事件类型，静默忽略
+            break;
+          }
         }
-      }
-    },
-    getCoverCacheDir(),
-    incrementalData,
-  );
+      },
+      getCoverCacheDir(),
+      incrementalData,
+    );
+  });
 };
 
 /** 取消正在进行的扫描 */
-export const cancelScan = (): void => {
+export const cancelScan = async (): Promise<void> => {
   if (!scanning) return;
   const engine = getEngine();
   engine.cancelScan();
   scanning = false;
   libraryLog.info("已发送扫描取消信号");
+  // 等待当前扫描 Promise 结束，避免状态竞争
+  if (scanPromise) {
+    await scanPromise.catch(() => {});
+    scanPromise = null;
+  }
 };

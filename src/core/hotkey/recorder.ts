@@ -15,6 +15,7 @@
  */
 
 import { eventToAccelerator } from "@shared/utils/accelerator";
+import { onBeforeUnmount } from "vue";
 
 interface UseHotkeyRecorderOptions {
   /** 平台（用于显示 + accelerator 反推） */
@@ -106,6 +107,10 @@ export const useHotkeyRecorder = (options: UseHotkeyRecorderOptions) => {
     cleanup();
     onCancel?.();
   };
+
+  onBeforeUnmount(() => {
+    if (isRecording.value) cancel();
+  });
 
   return {
     isRecording,

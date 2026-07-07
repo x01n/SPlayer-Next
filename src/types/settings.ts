@@ -5,7 +5,7 @@ import { ALL_PLATFORMS } from "@shared/types/platform";
 import type { QualityLevel } from "@/utils/quality";
 
 /** 播放器背景类型 */
-export type PlayerBgType = "blur" | "solid" | "animation";
+export type PlayerBgType = "blur" | "solid" | "animation" | "video" | "customImage" | "customVideo";
 export type CoverLayout = "default" | "fullscreen";
 
 /**
@@ -156,6 +156,10 @@ export interface PlayerSettings {
   playerBgFreezeOnPause: boolean;
   /** 流体背景随低频节拍脉动 */
   playerBgBeat: boolean;
+  /** 自定义图片背景路径 */
+  playerBgCustomImage: string | null;
+  /** 自定义视频背景路径 */
+  playerBgCustomVideo: string | null;
   /** 全屏播放器封面布局 */
   coverLayout: CoverLayout;
   /** 无歌词时自动居中封面并隐藏歌词区域 */

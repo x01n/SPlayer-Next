@@ -24,6 +24,7 @@ import IconListMinus from "~icons/lucide/list-minus";
 import IconCloudOff from "~icons/lucide/cloud-off";
 import IconSearch from "~icons/lucide/search";
 import IconMessageCircle from "~icons/lucide/message-circle";
+import IconFilm from "~icons/lucide/film";
 import IconMoreHorizontal from "~icons/lucide/more-horizontal";
 import IconPuzzle from "~icons/lucide/puzzle";
 
@@ -144,6 +145,11 @@ export const useTrackMenu = (
         separator: true,
       },
       {
+        key: "setVideoBg",
+        label: t("songList.context.setVideoBg"),
+        icon: markRaw(IconFilm),
+      },
+      {
         key: "comments",
         label: t("comments.name"),
         icon: markRaw(IconMessageCircle),
@@ -251,6 +257,9 @@ export const useTrackMenu = (
         break;
       case "searchSame":
         router.push({ path: "/search", query: { q: current.title } });
+        break;
+      case "setVideoBg":
+        status.showVideoBgDialog(current);
         break;
       case "comments":
         status.showComments(current);

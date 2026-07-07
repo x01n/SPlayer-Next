@@ -42,9 +42,12 @@ const isChildrenActive = computed(() => {
 
 const isDisabled = computed(() => props.item.disabled?.() ?? false);
 
-const descriptionText = computed(() =>
-  t(props.item.descriptionKey ?? `settings.${props.item.key}.description`),
-);
+const descriptionText = computed(() => {
+  const key = props.item.descriptionKey ?? `settings.${props.item.key}.description`;
+  const text = t(key);
+  // 如果翻译结果等于 key 本身，说明该 key 不存在
+  return text === key ? "" : text;
+});
 </script>
 
 <template>
@@ -144,7 +147,8 @@ const descriptionText = computed(() =>
           :is="item.component"
           v-else-if="item.type === 'custom' && item.component"
           :model-value="model"
-          @update:model-value="model = $event"
+          v-bind="item.componentProps"
+          @update:model-value="applyChange($event)"
         />
       </div>
     </div>

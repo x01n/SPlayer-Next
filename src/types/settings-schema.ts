@@ -76,6 +76,8 @@ export interface SettingItem {
   action?: () => void;
   /** custom 类型的组件 */
   component?: Component;
+  /** 传递给 custom 组件的额外 props */
+  componentProps?: Record<string, unknown>;
   /** custom：独占整行 */
   fullWidth?: boolean;
   /** 搜索用额外关键词（i18n keys） */

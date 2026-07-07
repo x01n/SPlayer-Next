@@ -30,7 +30,7 @@ watch(
   () => useSettingsStore().locale,
   (v) => {
     i18n.global.locale.value = v;
-    window.api.system.setLocale(v);
+    window.api?.system.setLocale(v);
   },
   { immediate: true },
 );
@@ -62,9 +62,13 @@ router.isReady().then(() => {
   // 计算剩余时间
   const elapsed = performance.now() - (window.__splashStart ?? 0);
   const remaining = Math.max(0, SPLASH_ANIM_MS - elapsed);
-  setTimeout(onSplashTimerDone, remaining);
-  if (!splashTimerFired) {
-    setTimeout(removeSplash, SPLASH_ANIM_MS + 100);
+  if (remaining > 0) {
+    setTimeout(onSplashTimerDone, remaining);
+    if (!splashTimerFired) {
+      setTimeout(removeSplash, SPLASH_ANIM_MS + 100);
+    }
+  } else {
+    onSplashTimerDone();
   }
   // 初始化播放器
   initPlayer().catch(console.error);
@@ -73,8 +77,4 @@ router.isReady().then(() => {
     .init()
     .then(installHotkeyManager)
     .catch((err) => console.error("[hotkey] init failed", err));
-  // 初始化一起听协议监听
-  import("@/composables/useListenTogetherProtocol")
-    .then((m) => m.useListenTogetherProtocol())
-    .catch(() => {});
 });

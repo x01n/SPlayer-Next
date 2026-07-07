@@ -5,24 +5,29 @@ import IconLucideRotateCcw from "~icons/lucide/rotate-ccw";
 defineOptions({ inheritAttrs: false });
 
 const { t } = useI18n();
+const downloadApi = window.api?.download;
+const systemApi = window.api?.system;
 
 const dir = ref("");
 
 const load = async (): Promise<void> => {
-  dir.value = await window.api.download.getDir();
+  if (!downloadApi) return;
+  dir.value = await downloadApi.getDir();
 };
 
 const change = async (): Promise<void> => {
-  const result = await window.api.download.pickDir();
+  if (!downloadApi) return;
+  const result = await downloadApi.pickDir();
   if (result.ok) dir.value = result.dir;
 };
 
 const reset = async (): Promise<void> => {
-  dir.value = await window.api.download.resetDir();
+  if (!downloadApi) return;
+  dir.value = await downloadApi.resetDir();
 };
 
 const openDir = (): void => {
-  if (dir.value) void window.api.system.showInExplorer(dir.value);
+  if (dir.value && systemApi) void systemApi.showInExplorer(dir.value);
 };
 
 onMounted(load);

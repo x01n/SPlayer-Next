@@ -77,6 +77,9 @@ const fetchers = {
   playlists: searchPlaylists,
 } as const;
 
+/** 取消当次请求 */
+let fetchAbort: AbortController | null = null;
+
 /**
  * 拉取指定 tab
  * @param tab - 要拉取的 tab
@@ -85,6 +88,15 @@ const fetchers = {
 const fetchTab = async (tab: TabKey, append: boolean): Promise<void> => {
   if (!keyword.value) return;
   const state = states[tab];
+  if (!window.api?.apis) {
+    state.items = [];
+    state.total = 0;
+    state.hasMore = false;
+    state.loaded = true;
+    state.loading = false;
+    state.loadingMore = false;
+    return;
+  }
   if (append) {
     if (!state.loaded || state.loadingMore || !state.hasMore) return;
     state.loadingMore = true;
@@ -93,6 +105,11 @@ const fetchTab = async (tab: TabKey, append: boolean): Promise<void> => {
     state.loading = true;
   }
   error.value = "";
+
+  fetchAbort?.abort();
+  const myAbort = new AbortController();
+  fetchAbort = myAbort;
+
   try {
     const offset = append ? state.items.length : 0;
     const result = await (fetchers[tab] as typeof searchSongs)(
@@ -101,6 +118,7 @@ const fetchTab = async (tab: TabKey, append: boolean): Promise<void> => {
       offset,
       PAGE_SIZE,
     );
+    if (myAbort.signal.aborted) return;
     const items = result.items.map((item) => markRaw(item));
     if (append) {
       (state.items as Track[]).push(...(items as Track[]));
@@ -111,10 +129,13 @@ const fetchTab = async (tab: TabKey, append: boolean): Promise<void> => {
     state.hasMore = result.hasMore;
     state.loaded = true;
   } catch (err) {
+    if (myAbort.signal.aborted) return;
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
-    state.loading = false;
-    state.loadingMore = false;
+    if (!myAbort.signal.aborted) {
+      state.loading = false;
+      state.loadingMore = false;
+    }
   }
 };
 
@@ -152,6 +173,10 @@ watch(
 /** 切换 tab：未拉过则按需请求 */
 watch(activeTab, (tab) => {
   if (keyword.value && !states[tab].loaded) fetchTab(tab, false);
+});
+
+onBeforeUnmount(() => {
+  fetchAbort?.abort();
 });
 
 const onTabSwitch = (key: string): void => {

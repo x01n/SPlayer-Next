@@ -51,12 +51,16 @@ const selectedDay = computed<DayView | null>(
   () => days.value.find((day) => day.key === selectedKey.value) ?? days.value[0] ?? null,
 );
 
-watch(days, (list) => {
-  if (list.length === 0) return;
-  if (!list.some((day) => day.key === selectedKey.value)) {
-    selectedKey.value = list[0].key;
-  }
-});
+watch(
+  days,
+  (list) => {
+    if (list.length === 0) return;
+    if (!list.some((day) => day.key === selectedKey.value)) {
+      selectedKey.value = list[0].key;
+    }
+  },
+  { immediate: true },
+);
 
 /** 首次进入且无缓存时显示加载态 */
 const loading = ref(data.dailyRecommend.length === 0);

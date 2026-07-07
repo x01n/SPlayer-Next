@@ -36,6 +36,12 @@ export const useContinueListening = () => {
 
   /** 拉取最常播放曲目 */
   const load = async (): Promise<void> => {
+    if (!window.api?.stats) {
+      items.value = [];
+      isRepeat.value = false;
+      return;
+    }
+
     try {
       const top = await window.api.stats.getTopTracks(MAX_ITEMS);
       items.value = top;

@@ -125,6 +125,7 @@ export const defaultSystemConfig: SystemConfig = {
     songCache: {
       enabled: false,
       sizeLimitGb: 10,
+      offlineFallback: true,
     },
   },
   download: {
@@ -144,6 +145,24 @@ export const defaultSystemConfig: SystemConfig = {
   },
   streaming: {
     enabled: true,
+  },
+  qqmusic: {
+    cookie: null,
+  },
+  kugou: {
+    cookie: "",
+  },
+  bilibili: {
+    cookie: "",
+    highQualityAudio: false,
+  },
+  spotify: {
+    clientId: "",
+    clientSecret: "",
+    userAccessToken: "",
+    userRefreshToken: "",
+    userTokenExpireAt: 0,
+    browserCookie: "",
   },
   listenTogether: {
     enabled: false,

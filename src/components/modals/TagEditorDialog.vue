@@ -52,6 +52,9 @@ const form = reactive({
 const newCoverPath = ref<string | null>(null);
 const newCoverPreview = ref<string | null>(null);
 
+/** 在线封面 URL */
+const newCoverUrl = ref<string | null>(null);
+
 /**
  * 重置表单为指定标签的值
  * @param tags 要回填的标签，null 表示重置为初始状态（全空）
@@ -101,9 +104,6 @@ const pickCover = async (): Promise<void> => {
   newCoverUrl.value = null;
   newCoverPreview.value = result.data.dataUrl;
 };
-
-/** 在线封面 URL */
-const newCoverUrl = ref<string | null>(null);
 
 /** 在线匹配平台，初始值跟随搜索页偏好，命名与搜索页同源 */
 const matchPlatform = ref<Platform>(useStatusStore().searchPlatform);

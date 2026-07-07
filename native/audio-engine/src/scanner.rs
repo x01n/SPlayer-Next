@@ -16,9 +16,10 @@ use walkdir::WalkDir;
 
 use crate::metadata;
 
-/// 支持的音频文件扩展名
+/// 支持的音频与视频文件扩展名
 const AUDIO_EXTENSIONS: &[&str] = &[
     "mp3", "flac", "wav", "ogg", "aac", "m4a", "wma", "opus", "ape",
+    "mp4", "mkv", "avi", "webm", "flv", "mov",
 ];
 
 /// 每批回调的文件数

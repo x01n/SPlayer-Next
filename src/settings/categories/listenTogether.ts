@@ -29,7 +29,7 @@ const listenTogetherSection: SettingSection = {
       min: 1000,
       max: 10000,
       step: 500,
-      defaultValue: 3000,
+      defaultValue: 8000,
       marks: { 1000: "1s", 3000: "3s", 5000: "5s", 10000: "10s" },
     },
     {

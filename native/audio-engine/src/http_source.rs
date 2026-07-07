@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context, Result};
 use tracing::{debug, warn};
 
 const USER_AGENT: &str = "SPlayer-Next/1.0";
-const PROBE_TIMEOUT_SECS: u64 = 10;
+const PROBE_TIMEOUT_SECS: u64 = 5;
 /// 重连阶段的 connect 超时：cancel flag 能打断 read 但打断不了 ureq 的 connect，
 /// 复用 10s 的 probe 超时会让网络抖动时的同步 stop() 被卡住最长 10s
 const RECONNECT_CONNECT_TIMEOUT_SECS: u64 = 2;

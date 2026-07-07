@@ -107,7 +107,7 @@ const applyAll = (): void => {
 export const initGlobalHotkey = (): void => {
   applyAll();
   // 退出前自动清理
-  app.on("will-quit", cleanupGlobalHotkey);
+  app.once("will-quit", cleanupGlobalHotkey);
 };
 
 /** 退出清理 */

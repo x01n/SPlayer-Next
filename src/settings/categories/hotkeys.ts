@@ -14,6 +14,7 @@ const hotkeysCategory: SettingCategory = {
           type: "custom",
           component: HotkeyConfig,
           fullWidth: true,
+          hideDescription: true,
         },
       ],
     },

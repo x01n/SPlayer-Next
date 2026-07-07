@@ -127,7 +127,7 @@ export const store = {
 
   /** 用导入的配置替换当前配置 */
   replaceAll(input: unknown): void {
-    const raw = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+    const raw = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
     data = deepMerge(defaultSystemConfig, raw);
     flushImmediate(data);
   },

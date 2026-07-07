@@ -4,7 +4,7 @@
  */
 
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /** 将大整数编码为 base62 字符串 */
 function bigIntToBase62(value: bigint): string {

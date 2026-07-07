@@ -98,6 +98,8 @@
     "prev": "上一页",
     "next": "下一页",
     "search": "搜索",
+    "add": "添加",
+    "or": "或",
     "loading": "加载中",
     "noData": "暂无数据",
     "noMore": "没有更多了 ~",
@@ -324,13 +326,77 @@
     "cookiePlaceholder": "粘贴 Cookie，至少需要 MUSIC_U=xxx;",
     "cookieInvalid": "Cookie 无效，必须包含 MUSIC_U",
     "cookieConfirm": "登录",
+    "cookieEmpty": "Cookie 不能为空",
     "success": "登录成功",
     "failed": "登录失败，请重试",
     "unknownUser": "未知用户",
+    "switchAccount": "切换账号",
     "logout": "退出登录",
     "logoutConfirmTitle": "退出登录",
     "logoutConfirmDesc": "确认退出当前账号？",
-    "logoutDone": "已退出登录"
+    "logoutDone": "已退出登录",
+    "spotify": {
+      "login": "登录 Spotify",
+      "logout": "退出 Spotify",
+      "notConfigured": "请先填写 Spotify Client ID",
+      "success": "Spotify 登录成功",
+      "failed": "Spotify 登录失败，请重试"
+    },
+    "netease": {
+      "mode": {
+        "qr": "扫码",
+        "email": "邮箱",
+        "phonePwd": "手机密码",
+        "captcha": "验证码",
+        "cookie": "Cookie"
+      },
+      "login": "登录",
+      "emailPlaceholder": "邮箱",
+      "phonePlaceholder": "手机号",
+      "passwordPlaceholder": "密码",
+      "captchaPlaceholder": "验证码",
+      "sendCaptcha": "发送验证码",
+      "captchaCountdown": "{seconds}s",
+      "emailEmpty": "请输入邮箱和密码",
+      "phonePasswordEmpty": "请输入手机号和密码",
+      "phoneEmpty": "请输入手机号",
+      "captchaEmpty": "请输入手机号和验证码",
+      "captchaSent": "验证码已发送",
+      "captchaFailed": "验证码发送失败",
+      "securityTip": "账号凭据仅在本机通过系统安全存储保存，不会传递给 WebUI 或插件。",
+      "cookieSecurityTip": "Cookie 登录只写入主进程本地配置，前端页面不会持久化 Cookie 内容。"
+    },
+    "platform": {
+      "netease": "网易云音乐",
+      "qqmusic": "QQ 音乐",
+      "spotify": "Spotify",
+      "bilibili": "Bilibili",
+      "kugou": "酷狗音乐"
+    },
+    "alreadyLoggedIn": "已登录：{name}",
+    "qqmusicLogin": "登录 QQ 音乐",
+    "spotifyLogin": "登录 Spotify",
+    "kugouLogin": "登录酷狗音乐",
+    "notLoggedIn": "未登录",
+    "loginOtherPlatform": "登录其他平台",
+    "manageAccounts": "账号管理",
+    "bilibili": {
+      "mode": {
+        "qr": "二维码",
+        "pwd": "密码",
+        "cookie": "Cookie"
+      },
+      "qrTipWaiting": "请打开哔哩哔哩 APP 扫码登录",
+      "qrTipScanned": "扫描成功，请在客户端确认登录",
+      "qrTipExpired": "二维码已过期，点击刷新",
+      "qrTipDone": "登录成功",
+      "qrTipUnknown": "状态异常，请重试",
+      "pwdLogin": "登录",
+      "pwdEmpty": "请输入用户名和密码",
+      "usernamePlaceholder": "手机号 / 邮箱",
+      "passwordPlaceholder": "密码"
+    },
+    "bilibiliLogin": "浏览器登录 Bilibili"
   },
   "search": {
     "title": "搜索",
@@ -344,6 +410,9 @@
       "albums": "专辑",
       "artists": "歌手",
       "playlists": "歌单"
+    },
+    "platform": {
+      "bilibili": "B站"
     }
   },
   "streaming": {
@@ -427,6 +496,18 @@
       "hint": "正值为歌词提前，单位毫秒"
     },
     "lyricCredit": "歌词制作",
+    "lyricSearch": {
+      "title": "搜索歌词",
+      "empty": "暂无歌词",
+      "search": "搜索歌词",
+      "apply": "应用",
+      "allPlatforms": "全部平台",
+      "songNamePlaceholder": "输入歌名",
+      "artistPlaceholder": "输入歌手",
+      "searchFailed": "搜索失败",
+      "fetchFailed": "获取歌词失败",
+      "noResults": "未找到匹配歌词"
+    },
     "copyLyric": {
       "title": "复制歌词",
       "contentLabel": "要复制的内容",
@@ -446,6 +527,18 @@
       "fileSuffix": "歌词分享",
       "exportFailed": "导出图片失败",
       "empty": "没有可复制的内容"
+    },
+    "videoBg": {
+      "name": "视频背景",
+      "title": "「{name}」的视频背景",
+      "searchPlaceholder": "搜索 Bilibili 视频",
+      "urlPlaceholder": "粘贴视频 URL",
+      "useUrl": "使用 URL",
+      "custom": "自定义",
+      "saved": "视频背景已保存",
+      "deleted": "视频背景已删除",
+      "urlInvalid": "仅支持 http(s) 或 cache:// 视频地址",
+      "noResults": "未找到匹配视频"
     },
     "repeatMode": {
       "list": "列表循环",
@@ -491,6 +584,7 @@
       "download": "下载歌曲",
       "deleteFile": "删除文件",
       "searchSame": "同名搜索",
+      "setVideoBg": "设置视频背景",
       "more": "更多操作",
       "copyTitle": "复制歌曲名称",
       "copyId": "复制歌曲 ID",
@@ -708,6 +802,8 @@
       "musicSpectrum": "音乐频谱",
       "discord": "Discord RPC",
       "lastfm": "Last.fm",
+      "qqmusic": "QQ 音乐",
+      "kugou": "酷狗音乐",
       "externalApi": "外部 API",
       "systemConfig": "系统配置",
       "pluginManage": "导入插件",
@@ -1337,7 +1433,10 @@
       "description": "全屏播放器的背景类型",
       "blur": "模糊",
       "solid": "纯色",
-      "animation": "流体"
+      "animation": "流体",
+      "video": "视频背景",
+      "customImage": "自定义图片",
+      "customVideo": "自定义视频"
     },
     "playerBgFlowSpeed": {
       "label": "流动速度",
@@ -1517,6 +1616,29 @@
         "failed": "连接失败，请重试",
         "disconnected": "已断开 Last.fm 连接"
       }
+    },
+    "kugou": {
+      "connect": "登录",
+      "disconnect": "退出登录",
+      "connectedAs": "已登录：{name}",
+      "notConnected": "尚未登录酷狗音乐",
+      "connectHint": "点击登录后输入 Cookie 进行登录",
+      "cookieDesc": "在浏览器中登录酷狗音乐后，打开开发者工具 → Application → Cookies，复制全部 Cookie 内容粘贴到下方输入框"
+    },
+    "qqmusic": {
+      "connect": "登录",
+      "disconnect": "退出登录",
+      "connectedAs": "已登录：{name}",
+      "notConnected": "尚未登录 QQ 音乐",
+      "connectHint": "点击登录后将打开 QQ 音乐网页版登录窗口"
+    },
+    "qqmusicAccount": {
+      "label": "QQ 音乐账号",
+      "description": "登录 QQ 音乐账号"
+    },
+    "spotifyAccount": {
+      "label": "Spotify 账号",
+      "description": "Spotify 账号配置"
     },
     "rememberWindowState": {
       "label": "记忆窗口状态",
@@ -1799,12 +1921,17 @@
       "label": "缓存上限",
       "description": "缓存达到上限后将自动清理，∞ 表示不限制"
     },
+    "offlineCacheFallback": {
+      "label": "离线缓存回退",
+      "description": "离线时优先使用已缓存的任意音质版本，无缓存则播放失败"
+    },
     "downloadEnabled": {
       "label": "启用下载功能"
     },
     "downloadDir": {
       "label": "下载目录",
-      "change": "更换"
+      "change": "更换",
+      "description": "选择下载文件的保存目录"
     },
     "downloadQuality": {
       "label": "下载音质",
@@ -1903,6 +2030,73 @@
     "listenTogetherAllowAnonymousChat": {
       "label": "允许匿名聊天",
       "description": "允许未登录用户参与聊天"
+    },
+    "spotifyClientId": {
+      "label": "Spotify Client ID",
+      "description": "Spotify 开发者后台申请的 Client ID，用于 OAuth 登录",
+      "placeholder": "输入 Spotify Client ID"
+    },
+    "spotifyClientSecret": {
+      "label": "Spotify Client Secret",
+      "description": "Spotify 开发者后台申请的 Client Secret，用于 Client Credentials 搜索",
+      "placeholder": "输入 Spotify Client Secret"
+    },
+    "spotifyLogin": {
+      "label": "Spotify 登录",
+      "description": "使用 OAuth 登录 Spotify 账号，可访问个人歌单与收藏",
+      "login": "登录 Spotify",
+      "logout": "退出 Spotify",
+      "loggedInAs": "已登录：{name}",
+      "notLoggedIn": "尚未登录 Spotify 账号"
+    },
+    "playerBgCustomImage": {
+      "label": "自定义图片背景",
+      "description": "选择一张本地图片作为全屏播放器背景"
+    },
+    "playerBgCustomVideo": {
+      "label": "自定义视频背景",
+      "description": "选择一个本地视频作为全屏播放器背景"
+    },
+    "playerBgFile": {
+      "select": "选择文件",
+      "replace": "更换文件",
+      "clear": "清除文件"
+    },
+    "bilibiliAccount": {
+      "label": "Bilibili 账号",
+      "description": "登录 Bilibili 账号"
+    },
+    "kugouAccount": {
+      "label": "酷狗音乐账号",
+      "description": "登录酷狗音乐账号"
+    },
+    "lastfmAccount": {
+      "label": "Last.fm 账号",
+      "description": "连接 Last.fm 账号，记录播放并同步喜欢"
+    },
+    "pluginImport": {
+      "label": "导入插件",
+      "description": "从本地文件或 URL 导入插件脚本"
+    },
+    "pluginList": {
+      "label": "插件列表",
+      "description": "管理已安装的插件，启用、禁用或卸载"
+    },
+    "streamingServerList": {
+      "label": "流媒体服务器",
+      "description": "管理已配置的流媒体服务器，测试连接并启用"
+    },
+    "bilibili": {
+      "connectedAs": "已登录：{name}",
+      "notConnected": "尚未登录 Bilibili",
+      "connectHint": "支持二维码、密码、Cookie 或浏览器登录",
+      "cookieDesc": "请粘贴 Bilibili 的 Cookie 进行登录"
+    },
+    "kugou": {
+      "connectedAs": "已登录：{name}",
+      "notConnected": "尚未登录酷狗音乐",
+      "connectHint": "点击登录后将打开酷狗音乐登录窗口",
+      "cookieDesc": "请粘贴酷狗音乐的 Cookie 进行登录"
     }
   },
   "collection": {
@@ -1957,6 +2151,7 @@
     "FILE_NOT_SELECTED": "未选择文件",
     "NETWORK_ERROR": "音源连接失败，请检查网络或更换音源",
     "NETWORK_TIMEOUT": "音源响应超时，请检查网络或更换音源",
+    "OFFLINE": "网络离线，无法解析在线音源",
     "URL_RESOLVE_FAILED": "无法获取播放地址",
     "NO_PLUGIN_AVAILABLE": "未找到支持该平台的插件",
     "SCAN_NO_DIRS": "未配置扫描目录",
@@ -1998,6 +2193,7 @@
         "error": "连接错误"
       },
       "leave": "离开",
+      "nowPlaying": "正在播放",
       "members": "{count} 人在线",
       "unknownArtist": "未知歌手",
       "createRoom": "创建房间",
@@ -2043,6 +2239,8 @@
       "addCurrentSong": "添加当前歌曲",
       "searchSongPlaceholder": "搜索歌曲...",
       "songAdded": "已添加歌曲",
+      "addSongFailed": "添加歌曲失败",
+      "removeSongFailed": "移除歌曲失败",
       "emptyQueue": "暂无歌曲，快去点歌吧",
       "noPlayingTrack": "当前没有播放歌曲",
       "today": "今天",
@@ -2063,7 +2261,8 @@
         "replyingTo": "引用",
         "quoted": "引用了",
         "mentionedYou": "提到了你",
-        "truncated": "消息过长，已截断"
+        "truncated": "消息过长，已截断",
+        "messageTooLong": "消息超过最大长度限制"
       }
     }
   }

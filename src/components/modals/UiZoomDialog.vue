@@ -21,8 +21,12 @@ watch(
   () => props.open,
   async (isOpen) => {
     if (!isOpen) return;
-    const saved = await window.api.config.get("system.uiZoom");
-    percent.value = typeof saved === "number" ? saved : 100;
+    try {
+      const saved = await window.api.config.get("system.uiZoom");
+      percent.value = typeof saved === "number" ? saved : 100;
+    } catch {
+      percent.value = 100;
+    }
   },
 );
 </script>

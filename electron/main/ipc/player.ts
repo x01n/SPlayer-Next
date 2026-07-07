@@ -123,7 +123,7 @@ const registerNativeEvents = (inst: InstanceType<AudioEngineModule["AudioPlayer"
         // 广播到所有可见窗口（包括桌面歌词、灵动岛等），不再局限于主窗口
         const visibleOnly = true;
         for (const win of BrowserWindow.getAllWindows()) {
-          if (win.isDestroyed()) continue;
+          if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
           if (visibleOnly && !win.isVisible()) continue;
           win.webContents.send("player:event", fftEvent);
         }
@@ -148,9 +148,14 @@ const registerNativeEvents = (inst: InstanceType<AudioEngineModule["AudioPlayer"
 
 /** 每次 player:load 自增 */
 let loadSeq = 0;
+/** 防止重复注册 */
+let registered = false;
 
 /** 播放器相关 IPC */
 export const registerPlayerIpc = (): void => {
+  if (registered) return;
+  registered = true;
+
   // 注册实例创建/重建时的回调
   onPlayerCreated(registerNativeEvents);
   onPlayerCreated(() => startDevicePolling());
@@ -258,7 +263,7 @@ export const registerPlayerIpc = (): void => {
         detail: {
           quality,
           embeddedLyric: meta.embeddedLyric,
-          externalLyrics: meta.externalLyrics,
+          externalLyrics: meta.externalLyrics ?? [],
         },
         mediaInfo: {
           duration: durationMs,
@@ -313,6 +318,7 @@ export const registerPlayerIpc = (): void => {
   // 停止播放并释放资源
   ipcMain.handle("player:stop", () => {
     try {
+      ++loadSeq; // 使旧的 fetchBytes 回调失效，防止停止后仍设置封面
       getPlayer().stop();
       return { success: true };
     } catch (error) {
@@ -578,13 +584,21 @@ export const registerPlayerIpc = (): void => {
       const inst = getPlayer();
       switch (event.type) {
         case "Play":
-          void inst.play().catch(() => {});
+          void inst.play().catch((err) => playerLog.warn("媒体控制 play 失败:", err));
           break;
         case "Pause":
-          inst.pause();
+          try {
+            inst.pause();
+          } catch {
+            // ignore
+          }
           break;
         case "Stop":
-          inst.stop();
+          try {
+            inst.stop();
+          } catch {
+            // ignore
+          }
           break;
         case "Seek":
           if (event.positionMs != null) {
@@ -602,6 +616,7 @@ export const registerPlayerIpc = (): void => {
         case "SetVolume":
           if (event.volume != null) {
             inst.setVolume(event.volume);
+            mediaService.setVolume(event.volume);
           }
           break;
         case "NextTrack":
@@ -611,7 +626,9 @@ export const registerPlayerIpc = (): void => {
           sendToMain("player:event", { type: "prev" });
           break;
       }
-    } catch {}
+    } catch (error) {
+      playerLog.error("系统媒体事件处理失败:", error);
+    }
   });
 
   // 系统休眠唤醒后重建音频输出设备
@@ -642,6 +659,9 @@ export const registerPlayerIpc = (): void => {
     wsBroadcast(stoppedEvent);
   };
   powerMonitor.on("resume", resumeHandler);
-  // 退出前停止设备轮询
-  app.on("before-quit", stopDevicePolling);
+  // 退出前停止设备轮询并移除 resume 监听
+  app.on("before-quit", () => {
+    stopDevicePolling();
+    powerMonitor.removeListener("resume", resumeHandler);
+  });
 };

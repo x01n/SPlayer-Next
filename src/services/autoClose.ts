@@ -13,6 +13,10 @@ import * as player from "@/core/player";
 let tickHandle: ReturnType<typeof setInterval> | null = null;
 /** "等本曲结束"模式下，时间到了但还没 pause —— 等 ended 事件触发 */
 let pendingPauseOnEnd = false;
+/** 单调计时器基准点（performance.now()） */
+let baseTime = 0;
+/** 剩余毫秒数（用于 visibilitychange 恢复时计算） */
+let remainMs = 0;
 
 const stopTick = (): void => {
   if (tickHandle !== null) {
@@ -29,12 +33,12 @@ const tick = (): void => {
     stopTick();
     return;
   }
-  const remainMs = autoClose.endTime - Date.now();
+  remainMs = remainMs - (performance.now() - baseTime);
+  baseTime = performance.now();
   autoClose.remainTime = Math.max(0, Math.ceil(remainMs / 1000));
   if (remainMs <= 0) {
     stopTick();
     if (autoClose.waitSongEnd) {
-      // 等本曲播完再停；标记一下，由 onTrackEnded 钩子处理
       pendingPauseOnEnd = true;
     } else {
       player.pause().catch(() => {});
@@ -51,12 +55,15 @@ const tick = (): void => {
 export const start = (durationMin: number, waitSongEnd: boolean): void => {
   const status = useStatusStore();
   const safe = Math.max(1, Math.round(durationMin));
+  const totalMs = safe * 60 * 1000;
   status.autoClose.enable = true;
   status.autoClose.duration = safe;
-  status.autoClose.endTime = Date.now() + safe * 60 * 1000;
+  status.autoClose.endTime = Date.now() + totalMs;
   status.autoClose.waitSongEnd = waitSongEnd;
   status.autoClose.remainTime = safe * 60;
   pendingPauseOnEnd = false;
+  remainMs = totalMs;
+  baseTime = performance.now();
   stopTick();
   tickHandle = setInterval(tick, 1000);
 };
@@ -68,6 +75,8 @@ export const cancel = (): void => {
   status.autoClose.endTime = 0;
   status.autoClose.remainTime = 0;
   pendingPauseOnEnd = false;
+  remainMs = 0;
+  baseTime = 0;
   stopTick();
 };
 
@@ -84,3 +93,22 @@ export const onTrackEnded = (): boolean => {
   cancel();
   return true;
 };
+
+/** 页面可见性变化处理：隐藏时暂停计时，恢复时扣除已过时间继续 */
+const onVisibilityChange = (): void => {
+  const status = useStatusStore();
+  if (!status.autoClose.enable) return;
+  if (document.hidden) {
+    // 页面隐藏：计算已流逝时间并扣除，停止定时器
+    remainMs = remainMs - (performance.now() - baseTime);
+    stopTick();
+  } else {
+    // 页面恢复：更新基准点并重启定时器
+    stopTick();
+    baseTime = performance.now();
+    tickHandle = setInterval(tick, 1000);
+    tick();
+  }
+};
+
+document.addEventListener("visibilitychange", onVisibilityChange);

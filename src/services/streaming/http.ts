@@ -17,6 +17,16 @@ export const fetchWithTimeout = async (
   timeout = REQUEST_TIMEOUT,
 ): Promise<Response> => {
   const controller = new AbortController();
+  const externalSignal = init?.signal;
+  let abortHandler: (() => void) | undefined;
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      abortHandler = () => controller.abort();
+      externalSignal.addEventListener("abort", abortHandler, { once: true });
+    }
+  }
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -29,6 +39,9 @@ export const fetchWithTimeout = async (
     throw err;
   } finally {
     clearTimeout(timer);
+    if (abortHandler && externalSignal) {
+      externalSignal.removeEventListener("abort", abortHandler);
+    }
   }
 };
 

@@ -11,11 +11,16 @@ export const useWindowControls = () => {
   const isMaximized = ref(false);
   const isFullscreen = ref(false);
 
-  const minimize = (): void => window.api.window.minimize();
-  const toggleMaximize = (): void => window.api.window.toggleMaximize();
-  const toggleFullscreen = (): void => window.api.window.toggleFullscreen();
-  const hide = (): void => window.api.window.hide();
-  const quit = (): void => window.api.window.quit();
+  const electronApi = window.api;
+
+  const minimize = (): void => void electronApi?.window.minimize();
+  const toggleMaximize = (): void => void electronApi?.window.toggleMaximize();
+  const toggleFullscreen = (): void => void electronApi?.window.toggleFullscreen();
+  const hide = (): void => void electronApi?.window.hide();
+  const quit = (): void => {
+    if (electronApi) void electronApi.window.quit();
+    else window.close();
+  };
 
   /** 点击关闭：已记忆走设置，未记忆弹窗询问 */
   const close = async (): Promise<void> => {
@@ -62,10 +67,11 @@ export const useWindowControls = () => {
   let offFs: (() => void) | null = null;
 
   onMounted(() => {
-    window.api.window.isMaximized().then((m) => (isMaximized.value = m));
-    window.api.window.isFullscreen().then((f) => (isFullscreen.value = f));
-    offMax = window.api.window.onMaximizeChange((m) => (isMaximized.value = m));
-    offFs = window.api.window.onFullscreenChange((f) => (isFullscreen.value = f));
+    if (!electronApi) return;
+    electronApi.window.isMaximized().then((m) => (isMaximized.value = m));
+    electronApi.window.isFullscreen().then((f) => (isFullscreen.value = f));
+    offMax = electronApi.window.onMaximizeChange((m) => (isMaximized.value = m));
+    offFs = electronApi.window.onFullscreenChange((f) => (isFullscreen.value = f));
   });
 
   onBeforeUnmount(() => {

@@ -67,8 +67,8 @@ export const onTrackEnded = (restart: boolean): void => {
 };
 
 /** 安装播放统计累加器 */
-export const installPlayStats = (): void => {
-  if (installed) return;
+export const installPlayStats = (): (() => void) => {
+  if (installed) return () => {};
   installed = true;
   const media = useMediaStore();
   const status = useStatusStore();
@@ -96,5 +96,15 @@ export const installPlayStats = (): void => {
   );
 
   // 退出前刷出最后一首
-  window.addEventListener("beforeunload", finalize);
+  const onBeforeUnload = () => finalize();
+  window.addEventListener("beforeunload", onBeforeUnload);
+
+  return () => {
+    window.removeEventListener("beforeunload", onBeforeUnload);
+  };
+};
+
+/** 卸载播放统计累加器 */
+export const uninstallPlayStats = (): void => {
+  // 由 installPlayStats 返回的清理函数处理
 };

@@ -80,13 +80,17 @@ const handleMoreMenu = (key: string): void => {
 
 // 进入页面时初始化
 onMounted(async () => {
-  libraryStore.subscribeScanProgress();
-  if (!initialized.value) {
-    await libraryStore.load();
-  }
-  // 有目录即扫描：尚无曲目时全量，已有曲目时增量
-  if (scanDirs.value.length > 0) {
-    libraryStore.startScan(tracks.value.length > 0);
+  try {
+    libraryStore.subscribeScanProgress();
+    if (!initialized.value) {
+      await libraryStore.load();
+    }
+    // 有目录即扫描：尚无曲目时全量，已有曲目时增量
+    if (scanDirs.value.length > 0) {
+      libraryStore.startScan(tracks.value.length > 0);
+    }
+  } catch {
+    /* 忽略初始化错误 */
   }
 });
 

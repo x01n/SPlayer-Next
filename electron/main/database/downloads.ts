@@ -1,5 +1,6 @@
 import type { DownloadTask } from "@shared/types/download";
 import type { Track } from "@shared/types/player";
+import type { ErrorCode } from "@shared/types/errors";
 import { getDb } from "./index";
 
 /** sqlite 原始行 */
@@ -17,20 +18,32 @@ interface RawRow {
   finished_at: number | null;
 }
 
-/** sqlite 行 → 业务 DownloadTask */
-const toTask = (raw: RawRow): DownloadTask => ({
-  taskId: raw.task_id,
-  track: JSON.parse(raw.track_json) as Track,
-  qualityLevel: raw.quality_level as DownloadTask["qualityLevel"],
-  status: raw.status as DownloadTask["status"],
-  received: raw.received,
-  total: raw.total,
-  filePath: raw.file_path ?? undefined,
-  errorCode: raw.error_code ?? undefined,
-  tagWarning: raw.tag_warning === 1,
-  createdAt: raw.created_at,
-  finishedAt: raw.finished_at ?? undefined,
-});
+/**
+ * sqlite 行 → 业务 DownloadTask
+ * @param raw - 数据库原始行
+ * @returns DownloadTask 对象；track_json 解析失败时返回 null
+ */
+const toTask = (raw: RawRow): DownloadTask | null => {
+  let track: Track;
+  try {
+    track = JSON.parse(raw.track_json) as Track;
+  } catch {
+    return null;
+  }
+  return {
+    taskId: raw.task_id,
+    track,
+    qualityLevel: raw.quality_level as DownloadTask["qualityLevel"],
+    status: raw.status as DownloadTask["status"],
+    received: raw.received,
+    total: raw.total,
+    filePath: raw.file_path ?? undefined,
+    errorCode: (raw.error_code as ErrorCode | null) ?? undefined,
+    tagWarning: raw.tag_warning === 1,
+    createdAt: raw.created_at,
+    finishedAt: raw.finished_at ?? undefined,
+  };
+};
 
 /** 写入或覆盖一条任务 */
 export const upsert = (task: DownloadTask): void => {
@@ -73,20 +86,20 @@ export const findById = (taskId: string): DownloadTask | null => {
   return raw ? toTask(raw) : null;
 };
 
-/** 列出全部任务，最新在前 */
+/** 列出全部任务，最新在前；过滤掉 track_json 解析失败的记录 */
 export const listAll = (): DownloadTask[] => {
   const rows = getDb()
     .prepare("SELECT * FROM download_tasks ORDER BY created_at DESC")
     .all() as RawRow[];
-  return rows.map(toTask);
+  return rows.map(toTask).filter((t): t is DownloadTask => t !== null);
 };
 
-/** 列出指定音质的已完成任务（用于重复下载去重） */
+/** 列出指定音质的已完成任务（用于重复下载去重）；过滤掉解析失败的记录 */
 export const listCompletedByQuality = (quality: string): DownloadTask[] => {
   const rows = getDb()
     .prepare("SELECT * FROM download_tasks WHERE status = 'done' AND quality_level = ?")
     .all(quality) as RawRow[];
-  return rows.map(toTask);
+  return rows.map(toTask).filter((t): t is DownloadTask => t !== null);
 };
 
 /** 删除一条 */

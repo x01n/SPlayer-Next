@@ -122,7 +122,7 @@ unsafe fn create_dib(bgra: &[u8], w: i32, h: i32) -> Option<HBITMAP> {
         let _ = unsafe { DeleteObject(HGDIOBJ(hbmp.0)) };
         return None;
     }
-    let len = ((w * h * 4) as usize).min(bgra.len());
+    let len = (w as usize).saturating_mul(h as usize).saturating_mul(4).min(bgra.len());
     unsafe { std::ptr::copy_nonoverlapping(bgra.as_ptr(), bits.cast::<u8>(), len) };
     Some(hbmp)
 }

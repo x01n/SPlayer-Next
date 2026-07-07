@@ -22,7 +22,7 @@ let lastPositionMs = 0;
 let cycleId = 0;
 
 /** 是否看起来是网易云登录态 */
-const isLoggedIn = (): boolean => Boolean(getNeteaseCookies().MUSIC_U);
+const isLoggedIn = (): boolean => Boolean(getNeteaseCookies()?.MUSIC_U);
 
 /** 听歌打卡是否启用 */
 const isScrobbleEnabled = (): boolean => Boolean(store.get("system.neteaseScrobbleEnabled"));

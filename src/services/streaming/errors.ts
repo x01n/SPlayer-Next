@@ -41,7 +41,7 @@ export const classifyError = (err: unknown): StreamingErrorCode => {
   if (err instanceof StreamingTimeoutError) return "network";
   if (err instanceof StreamingHttpError) return err.status >= 500 ? "network" : "protocol";
   if (err instanceof StreamingProtocolError) return "protocol";
-  // fetch 在 DNS/网络失败时抛 TypeError
-  if (err instanceof TypeError) return "network";
+  // fetch 在 DNS/网络失败时抛 TypeError；服务器返回非 JSON 时抛 SyntaxError
+  if (err instanceof TypeError || err instanceof SyntaxError) return "network";
   return "unknown";
 };

@@ -103,6 +103,11 @@ const applyLayout = (layout: JsTaskbarLayout): void => {
   const win = getTaskbarLyricWindow();
   if (!win) return;
 
+  if (!layout?.space || !layout?.extra) {
+    taskbarLog.warn("任务栏布局数据异常，跳过本次布局更新");
+    return;
+  }
+
   const picked = pickSpace(layout);
   if (!picked) {
     hideIfVisible(win);
@@ -254,11 +259,13 @@ export const createTaskbarLyricWindow = (): BrowserWindow | null => {
   });
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    taskbarLyricWindow.loadURL(
-      `${process.env["ELECTRON_RENDERER_URL"]}/windows/taskbar-lyric/index.html`,
-    );
+    taskbarLyricWindow
+      .loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/windows/taskbar-lyric/index.html`)
+      .catch(() => {});
   } else {
-    taskbarLyricWindow.loadFile(join(__dirname, "../renderer/windows/taskbar-lyric/index.html"));
+    taskbarLyricWindow
+      .loadFile(join(__dirname, "../renderer/windows/taskbar-lyric/index.html"))
+      .catch(() => {});
   }
 
   taskbarLyricWindow.once("ready-to-show", () => {

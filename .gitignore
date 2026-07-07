@@ -19,3 +19,5 @@ skills-lock.json
 native/*/*.node
 # native/*/index.d.ts
 package-lock.json
+.serena/
+.playwright-mcp/

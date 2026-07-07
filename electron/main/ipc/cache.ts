@@ -58,6 +58,12 @@ const dirSize = async (dir: string): Promise<number> => {
     entries.map(async (entry) => {
       const full = path.join(dir, entry.name);
       try {
+        if (entry.isSymbolicLink()) {
+          const realPath = await fs.realpath(full);
+          const realStat = await fs.stat(realPath);
+          if (realStat.isDirectory()) return await dirSize(realPath);
+          if (realStat.isFile()) return realStat.size;
+        }
         if (entry.isDirectory()) return await dirSize(full);
         if (entry.isFile()) return (await fs.stat(full)).size;
       } catch {}
@@ -90,13 +96,20 @@ const isDirEmpty = async (dir: string): Promise<boolean> => {
   return entries.length === 0;
 };
 
+/** 合法的数据库表名白名单，防止 SQL 注入 */
+const ALLOWED_DB_TABLES = new Set(["lyric_cache", "lyric_ttml_cache", "lyric_match_cache"]);
+
 /**
  * sqlite 单表占用：取所有 TEXT/BLOB 字段 length 之和
- * @param table - 表名
+ * @param table - 表名（必须是白名单中的表）
  * @param columns - 列名列表
  * @returns 占用字节数
  */
 const tableSize = (table: string, columns: string[]): number => {
+  if (!ALLOWED_DB_TABLES.has(table)) {
+    systemLog.error(`[cache] 非法表名: ${table}`);
+    return 0;
+  }
   try {
     const expr = columns.map((c) => `COALESCE(length(${c}), 0)`).join(" + ");
     const row = getDb().prepare(`SELECT SUM(${expr}) AS total FROM ${table}`).get() as

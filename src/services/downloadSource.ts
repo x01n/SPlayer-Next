@@ -32,7 +32,8 @@ export const resolveDownloadSource = async (
         playSessionId: crypto.randomUUID(),
       });
       return { url };
-    } catch {
+    } catch (err) {
+      console.warn(`流媒体下载地址解析失败: ${track.title}`, err);
       return null;
     }
   }
@@ -42,14 +43,20 @@ export const resolveDownloadSource = async (
       const usePlayback = useSettingsStore().system.download.usePlaybackForDownload;
       const resolved = await resolveNeteaseDownloadUrl(track, level, usePlayback);
       if (resolved) return resolved;
-    } catch {
+    } catch (err) {
+      console.warn(`网易云下载地址解析失败: ${track.title}`, err);
       // 官方失败回落插件
     }
   }
   // 其他播放源走插件
   if (isPlatform(track.source)) {
-    const res = await resolveByPlugin(track, level);
-    if (res.url) return { url: res.url };
+    try {
+      const res = await resolveByPlugin(track, level);
+      if (res.url) return { url: res.url };
+    } catch (err) {
+      console.warn(`插件下载地址解析失败: ${track.title}`, err);
+    }
   }
+  console.warn(`无法解析下载地址: ${track.title} (source=${track.source})`);
   return null;
 };

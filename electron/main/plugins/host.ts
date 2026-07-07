@@ -120,8 +120,8 @@ export const dispatchHostCall = async (
         data = playerControl.getPosition();
         break;
       case "notification.show": {
-        const opts = args[0] as { title?: string; body?: string; icon?: string; silent?: boolean };
-        if (opts.title) {
+        const opts = args[0] as { title?: string; body?: string; icon?: string; silent?: boolean } | undefined;
+        if (opts?.title) {
           new Notification({
             title: opts.title,
             body: opts.body ?? "",
@@ -144,7 +144,8 @@ export const dispatchHostCall = async (
       }
       case "system.openExternal": {
         const url = String(args[0] ?? "");
-        if (url.startsWith("http://") || url.startsWith("https://")) {
+        const lower = url.toLowerCase();
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
           await shell.openExternal(url);
         }
         data = undefined;

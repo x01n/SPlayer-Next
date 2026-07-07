@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 interface NativeModule {
@@ -26,6 +28,9 @@ const modules: NativeModule[] = [
     enabled: process.platform === "linux",
   },
 ];
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, "..");
 
 const isRustAvailable = () => {
   const result = spawnSync("cargo", ["--version"], {
@@ -92,7 +97,7 @@ for (const mod of modules) {
   if (mod.enabled === false) {
     continue;
   }
-  const cwd = `native/${mod.name}`;
+  const cwd = path.join(projectRoot, "native", mod.name);
 
   const buildType = options.isDev ? "debug" : "release";
   console.log(`[BuildNative] 构建 ${mod.name} (${buildType})`);

@@ -49,8 +49,8 @@ export const detectFormat = (text: string): LyricFormat => {
   if (/^\d+\r?\n\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->/.test(trimmed)) return "srt";
   // TTML / QRC XML
   if (trimmed.startsWith("<?xml") || trimmed.startsWith("<")) {
-    if (/LyricContent="|<QrcInfos|<Lyric_/.test(text)) return "qrc";
     if (trimmed.startsWith("<tt") || /<tt\s/i.test(text)) return "ttml";
+    if (/LyricContent="|<QrcInfos|<Lyric_/.test(text)) return "qrc";
   }
   // YRC：[起始,时长](起始,时长,0)
   if (/\[\d+,\d+\]\(\d+,\d+,\d+\)/.test(text)) return "yrc";
@@ -87,6 +87,8 @@ const parseContent = (text: string, format: LyricFormat, preferredLang = ""): Ly
       return parseSRT(text);
     case "ass":
       return parseASS(text);
+    default:
+      return [];
   }
 };
 

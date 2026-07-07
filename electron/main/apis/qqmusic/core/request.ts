@@ -9,6 +9,7 @@
  */
 
 import { QM_API_URL, QM_HEADERS, SESSION_TTL, getCommonParams } from "./config";
+import { getQQMusicCookie } from "../auth";
 
 /** Session 字段（可能缺失则下次请求会自动补拿） */
 interface SessionCache {
@@ -19,6 +20,11 @@ interface SessionCache {
 }
 
 let session: SessionCache = { expireAt: 0 };
+
+export const clearQQMusicSession = (): void => {
+  session = { expireAt: 0 };
+  initPromise = null;
+};
 let initPromise: Promise<void> | null = null;
 
 /** 重试次数与退避 */
@@ -35,9 +41,14 @@ interface FcgResponse {
 
 /** 直接发起一次 fcg POST（不做 session 注入，用于初始化自身） */
 const postRaw = async (body: unknown): Promise<FcgResponse> => {
+  const cookie = getQQMusicCookie();
+  const headers: Record<string, string> = { ...QM_HEADERS };
+  if (cookie) {
+    headers.Cookie = cookie;
+  }
   const res = await fetch(QM_API_URL, {
     method: "POST",
-    headers: QM_HEADERS,
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   });

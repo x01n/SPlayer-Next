@@ -64,7 +64,9 @@ export const insertToQueue = (item: Track, index: number): void => {
   next.splice(safeIndex, 0, item);
   queue.value = next;
   if (originalQueue.value) {
-    originalQueue.value = [...originalQueue.value, item];
+    const nextOrig = [...originalQueue.value];
+    nextOrig.splice(safeIndex, 0, item);
+    originalQueue.value = nextOrig;
   }
   save();
 };
@@ -80,7 +82,8 @@ export const insertManyToQueue = (items: Track[], index: number): void => {
   const safeIndex = Math.max(0, Math.min(index, list.length));
   queue.value = [...list.slice(0, safeIndex), ...items, ...list.slice(safeIndex)];
   if (originalQueue.value) {
-    originalQueue.value = [...originalQueue.value, ...items];
+    const orig = originalQueue.value;
+    originalQueue.value = [...orig.slice(0, safeIndex), ...items, ...orig.slice(safeIndex)];
   }
   save();
 };
@@ -137,6 +140,15 @@ export const moveInQueue = (fromIndex: number, toIndex: number): void => {
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   queue.value = next;
+  if (originalQueue.value) {
+    const origIdx = originalQueue.value.findIndex((t) => t.id === item.id);
+    if (origIdx !== -1) {
+      const nextOrig = [...originalQueue.value];
+      const [origItem] = nextOrig.splice(origIdx, 1);
+      nextOrig.splice(toIndex, 0, origItem);
+      originalQueue.value = nextOrig;
+    }
+  }
   save();
 };
 

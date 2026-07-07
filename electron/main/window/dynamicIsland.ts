@@ -117,15 +117,15 @@ const setupKWinScript = (): void => {
     if (w.caption === "Dynamic Island") {
       w.skipTaskbar = true;
       w.noBorder = true;
-      w.keepAbove = ${alwaysOnTop};
-      print("SPlayer dynamic island setup: skipTaskbar=true, noBorder=true, keepAbove=" + ${alwaysOnTop});
+      w.keepAbove = ${JSON.stringify(alwaysOnTop)};
+      print("SPlayer dynamic island setup: skipTaskbar=true, noBorder=true, keepAbove=" + ${JSON.stringify(alwaysOnTop)});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) setupWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(setupWindow);
-  print("SPlayer dynamic island init script loaded, alwaysOnTop=${alwaysOnTop}");
+  print("SPlayer dynamic island init script loaded, alwaysOnTop=" + ${JSON.stringify(alwaysOnTop)});
 }`;
 
     writeFileSync(scriptPath, scriptContent, "utf-8");
@@ -195,6 +195,9 @@ const CURSOR_POLL_MS = 150;
  * 避免 Windows 高 DPI 下 DIP↔物理像素有损回环造成尺寸漂移
  */
 const cachedSize = { width: INITIAL_WIDTH, height: 40 };
+
+/** 同步状态待执行 setTimeout 列表，防止频繁 show/hide 时累积 */
+const pendingTimeouts: NodeJS.Timeout[] = [];
 
 /** 当前是否启用刘海融合，仅 macOS 生效 */
 const isNotchFusionEnabled = (): boolean => isMac && store.get("dynamicIsland").notchFusion;
@@ -326,8 +329,12 @@ const syncDynamicIslandState = (): void => {
     dynamicIslandWindow.setIgnoreMouseEvents(true, { forward: true });
   }
 
+  // 清理旧定时器，避免频繁 show/hide 时累积
+  pendingTimeouts.forEach(clearTimeout);
+  pendingTimeouts.length = 0;
+
   // 第一次延迟同步（500ms），覆盖 Linux 下 X11/Wayland 异步映射场景
-  setTimeout(() => {
+  const t1 = setTimeout(() => {
     if (!dynamicIslandWindow || dynamicIslandWindow.isDestroyed()) return;
     const currentCfg = store.get("dynamicIsland");
     dynamicIslandWindow.setAlwaysOnTop(currentCfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
@@ -341,15 +348,15 @@ const syncDynamicIslandState = (): void => {
         runKWinScript(
           `function applyToWindow(w) {
     if (w.caption === "Dynamic Island") {
-      w.keepAbove = ${currentCfg.alwaysOnTop};
-      print("SPlayer dynamic island keepAbove = " + ${currentCfg.alwaysOnTop});
+      w.keepAbove = ${JSON.stringify(currentCfg.alwaysOnTop)};
+      print("SPlayer dynamic island keepAbove = " + ${JSON.stringify(currentCfg.alwaysOnTop)});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(applyToWindow);
-  print("SPlayer dynamic island sync script loaded, keepAbove = " + ${currentCfg.alwaysOnTop});`,
+  print("SPlayer dynamic island sync script loaded, keepAbove = " + ${JSON.stringify(currentCfg.alwaysOnTop)});`,
         );
       } else {
         if (currentCfg.nonOcclusive) {
@@ -363,9 +370,10 @@ const syncDynamicIslandState = (): void => {
       }
     }
   }, 500);
+  pendingTimeouts.push(t1);
 
   // 第二次延迟同步（1200ms），覆盖窗口管理器延迟映射场景
-  setTimeout(() => {
+  const t2 = setTimeout(() => {
     if (!dynamicIslandWindow || dynamicIslandWindow.isDestroyed()) return;
     const currentCfg = store.get("dynamicIsland");
     dynamicIslandWindow.setAlwaysOnTop(currentCfg.alwaysOnTop, ALWAYS_ON_TOP_LEVEL);
@@ -377,21 +385,22 @@ const syncDynamicIslandState = (): void => {
         runKWinScript(
           `function applyToWindow(w) {
     if (w.caption === "Dynamic Island") {
-      w.keepAbove = ${currentCfg.alwaysOnTop};
-      print("SPlayer dynamic island keepAbove = " + ${currentCfg.alwaysOnTop});
+      w.keepAbove = ${JSON.stringify(currentCfg.alwaysOnTop)};
+      print("SPlayer dynamic island keepAbove = " + ${JSON.stringify(currentCfg.alwaysOnTop)});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(applyToWindow);
-  print("SPlayer dynamic island sync script loaded, keepAbove = " + ${currentCfg.alwaysOnTop});`,
+  print("SPlayer dynamic island sync script loaded, keepAbove = " + ${JSON.stringify(currentCfg.alwaysOnTop)});`,
         );
       } else {
         forceX11AlwaysOnTop(currentCfg.alwaysOnTop);
       }
     }
   }, 1200);
+  pendingTimeouts.push(t2);
 };
 
 /**
@@ -410,30 +419,30 @@ export const applyDynamicIslandAlwaysOnTop = (alwaysOnTop: boolean): void => {
       runKWinScript(
         `function applyToWindow(w) {
     if (w.caption === "Dynamic Island") {
-      w.keepAbove = ${alwaysOnTop};
-      print("SPlayer dynamic island keepAbove = " + ${alwaysOnTop});
+      w.keepAbove = ${JSON.stringify(alwaysOnTop)};
+      print("SPlayer dynamic island keepAbove = " + ${JSON.stringify(alwaysOnTop)});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(applyToWindow);
-  print("SPlayer dynamic island apply script loaded, keepAbove = " + ${alwaysOnTop});`,
+  print("SPlayer dynamic island apply script loaded, keepAbove = " + ${JSON.stringify(alwaysOnTop)});`,
       );
       // Wayland 下 KWin 脚本可能异步执行，延迟后再次尝试
       setTimeout(() => {
         runKWinScript(
           `function applyToWindow(w) {
     if (w.caption === "Dynamic Island") {
-      w.keepAbove = ${alwaysOnTop};
-      print("SPlayer dynamic island keepAbove retry = " + ${alwaysOnTop});
+      w.keepAbove = ${JSON.stringify(alwaysOnTop)};
+      print("SPlayer dynamic island keepAbove retry = " + ${JSON.stringify(alwaysOnTop)});
     }
   }
   var windows = workspace.windowList ? workspace.windowList() : workspace.clientList();
   for (var i = 0; i < windows.length; i++) applyToWindow(windows[i]);
   var signal = workspace.windowAdded || workspace.clientAdded;
   signal.connect(applyToWindow);
-  print("SPlayer dynamic island retry script loaded, keepAbove = " + ${alwaysOnTop});`,
+  print("SPlayer dynamic island retry script loaded, keepAbove = " + ${JSON.stringify(alwaysOnTop)});`,
         );
       }, 600);
     } else {
@@ -466,6 +475,10 @@ const startCursorPolling = (): void => {
   dynamicIslandWindow?.webContents.send("dynamicIsland:cursorInside", lastCursorInside);
   cursorPollTimer = setInterval(() => {
     if (!dynamicIslandWindow || dynamicIslandWindow.isDestroyed()) {
+      stopCursorPolling();
+      return;
+    }
+    if (!dynamicIslandWindow.isVisible()) {
       stopCursorPolling();
       return;
     }
@@ -823,11 +836,13 @@ export const createDynamicIslandWindow = (): BrowserWindow => {
   });
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    dynamicIslandWindow.loadURL(
-      `${process.env["ELECTRON_RENDERER_URL"]}/windows/dynamic-island/index.html`,
-    );
+    dynamicIslandWindow
+      .loadURL(`${process.env["ELECTRON_RENDERER_URL"]}/windows/dynamic-island/index.html`)
+      .catch(() => {});
   } else {
-    dynamicIslandWindow.loadFile(join(__dirname, "../renderer/windows/dynamic-island/index.html"));
+    dynamicIslandWindow
+      .loadFile(join(__dirname, "../renderer/windows/dynamic-island/index.html"))
+      .catch(() => {});
   }
 
   dynamicIslandWindow.webContents.on("did-finish-load", () => {

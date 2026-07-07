@@ -29,7 +29,7 @@ export const setByPath = (obj: unknown, dotPath: string, value: unknown): void =
   let cur = obj as Record<string, unknown>;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (cur[key] == null || typeof cur[key] !== "object") cur[key] = {};
+    if (cur[key] == null || typeof cur[key] !== "object" || Array.isArray(cur[key])) cur[key] = {};
     cur = cur[key] as Record<string, unknown>;
   }
   cur[keys[keys.length - 1]] = value;

@@ -311,10 +311,10 @@ export const applyLyricExclude = (lines: LyricLine[], track: Track | null): Lyri
   if (!settings.enableExcludeLyrics) return lines;
 
   const mergedKeywords = [
-    ...new Set([...defaultExcludeKeywords, ...settings.excludeLyricsUserKeywords]),
+    ...new Set([...defaultExcludeKeywords, ...(settings.excludeLyricsUserKeywords ?? [])]),
   ];
   const mergedRegexes = [
-    ...new Set([...defaultExcludeRegexes, ...settings.excludeLyricsUserRegexes]),
+    ...new Set([...defaultExcludeRegexes, ...(settings.excludeLyricsUserRegexes ?? [])]),
   ];
 
   const artistNames = track?.artists?.map((a) => a.name).filter(Boolean) ?? [];

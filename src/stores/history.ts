@@ -15,7 +15,10 @@ export interface HistoryEntry {
 }
 
 /** 同源同 id 视为同一首 */
-const keyOf = (track: Track): string => `${track.source}:${track.id}`;
+const keyOf = (track: Track | null | undefined): string | null => {
+  if (!track?.id) return null;
+  return `${track.source}:${track.id}`;
+};
 
 export const useHistoryStore = defineStore("history", () => {
   /** 倒序：最近播放在前 */
@@ -49,6 +52,7 @@ export const useHistoryStore = defineStore("history", () => {
     if (!track?.id) return;
     await load();
     const key = keyOf(track);
+    if (!key) return;
     const filtered = entries.value.filter((item) => keyOf(item.track) !== key);
     entries.value = [{ track, playedAt: Date.now() }, ...filtered].slice(0, MAX_HISTORY);
     persist();
@@ -60,6 +64,7 @@ export const useHistoryStore = defineStore("history", () => {
    */
   const remove = (track: Track): void => {
     const key = keyOf(track);
+    if (!key) return;
     const next = entries.value.filter((entry) => keyOf(entry.track) !== key);
     if (next.length === entries.value.length) return;
     entries.value = next;

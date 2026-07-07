@@ -73,6 +73,11 @@ export const useHomeDiscover = () => {
       apply(cache);
       return;
     }
+    if (!window.api?.apis) {
+      cache = { at: Date.now(), loggedIn, recommend: [], radar: [], artists: [], albums: [] };
+      apply(cache);
+      return;
+    }
     const [recommend, radar, artistList, albums] = await Promise.all([
       safe("recommend playlists", fetchRecommendPlaylists(loggedIn)),
       loggedIn ? safe("radar playlists", fetchRadarPlaylists()) : Promise.resolve<CoverItem[]>([]),

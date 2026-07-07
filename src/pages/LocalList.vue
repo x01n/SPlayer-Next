@@ -86,10 +86,14 @@ const handleClick = (item: CoverItem): void => {
 };
 
 onMounted(async () => {
-  source.value =
-    mode === "artist" ? await libraryStore.getArtistList() : await libraryStore.getAlbumList();
-  // 拉取当前列表中尚未缓存的歌手头像
-  if (mode === "artist") libraryStore.loadArtistAvatars();
+  try {
+    source.value =
+      mode === "artist" ? await libraryStore.getArtistList() : await libraryStore.getAlbumList();
+    // 拉取当前列表中尚未缓存的歌手头像
+    if (mode === "artist") libraryStore.loadArtistAvatars();
+  } catch {
+    /* 忽略加载错误 */
+  }
 });
 </script>
 

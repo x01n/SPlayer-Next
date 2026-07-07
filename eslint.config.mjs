@@ -15,6 +15,7 @@ export default defineConfig(
     "**/resources/",
     "**/public/",
     "**/.git/",
+    ".claude/worktrees/",
     "native/*/index.d.ts",
     ".github/scripts/",
   ]),

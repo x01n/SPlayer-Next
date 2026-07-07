@@ -71,6 +71,7 @@ const get = async (
 ): Promise<LastfmResponse> => {
   const qs = buildParams(method, params, signed);
   const res = await fetch(`${API_URL}?${qs.toString()}`);
+  if (!res.ok) throw new Error(`Last.fm HTTP ${res.status}`);
   const data = (await res.json()) as LastfmResponse;
   if (data.error) throw new Error(`Last.fm ${data.error}: ${data.message ?? "未知错误"}`);
   return data;
@@ -87,6 +88,7 @@ const post = async (
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
+  if (!res.ok) throw new Error(`Last.fm HTTP ${res.status}`);
   const data = (await res.json()) as LastfmResponse;
   if (data.error) throw new Error(`Last.fm ${data.error}: ${data.message ?? "未知错误"}`);
   return data;

@@ -64,7 +64,12 @@ const handleCreateRoom = async (): Promise<void> => {
   creating.value = true;
   try {
     const roomName = settings.system.listenTogether.defaultRoomName || "一起听房间";
-    const success = await store.createRoom(roomName, userStore.profile?.userId);
+    const success = await store.createRoom(
+      createNickname.value.trim(),
+      userStore.profile?.userId,
+      roomName,
+      authKey,
+    );
     if (success) {
       toast.success(t("listenTogether.panel.createSuccess"));
       showCreateForm.value = false;
@@ -77,12 +82,12 @@ const handleCreateRoom = async (): Promise<void> => {
 };
 
 /** 解析链接 */
-const parseJoinLink = (): {
+const parseJoinLink = async (): Promise<{
   serverUrl: string;
   port: number;
   roomId: string;
   roomKey: string;
-} | null => {
+} | null> => {
   const link = joinLink.value.trim();
   if (!link) return null;
   try {
@@ -91,16 +96,19 @@ const parseJoinLink = (): {
     const port = parseInt(url.port || "14558", 10);
     const roomId = url.searchParams.get("roomId");
     const roomKey = url.searchParams.get("roomKey");
-    if (!roomId || !roomKey) {
-      // 尝试 base62 格式 splayer-listentogether://host:port/i/xxx
-      const pathMatch = url.pathname.match(/\/i\/(.+)/);
-      if (pathMatch) {
-        // base62 解码需要服务端支持，这里先不支持直接解析
-        return null;
-      }
-      return null;
+    if (roomId && roomKey) {
+      return { serverUrl, port, roomId, roomKey };
     }
-    return { serverUrl, port, roomId, roomKey };
+    // 尝试 base62 格式 splayer-listentogether://host:port/i/xxx
+    const pathMatch = url.pathname.match(/^\/i\/([^/]+)\/?$/);
+    if (pathMatch) {
+      const inviteCode = pathMatch[1];
+      const decoded = await window.api.listenTogether.decodeInviteCode(inviteCode);
+      if (decoded) {
+        return { serverUrl, port, roomId: decoded.roomId, roomKey: decoded.roomKey };
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -119,7 +127,7 @@ const handleJoinRoom = async (): Promise<void> => {
   let roomKey: string;
 
   if (joinLink.value.trim() && !showManualJoin.value) {
-    const parsed = parseJoinLink();
+    const parsed = await parseJoinLink();
     if (!parsed) {
       toast.error(t("listenTogether.protocol.invalidLink"));
       return;

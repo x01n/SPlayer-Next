@@ -85,7 +85,7 @@ export const toast = {
 
 /** 设置最大显示数量 */
 export const setMaxToasts = (max: number): void => {
-  maxToasts = max;
+  maxToasts = Math.max(1, max);
 };
 
 /** 获取队列引用 */

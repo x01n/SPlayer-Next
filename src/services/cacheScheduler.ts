@@ -1,3 +1,4 @@
+import { getNetworkState } from "@/services/network";
 import { useMediaStore } from "@/stores/media";
 
 /** 触发缓存所需的最低播放位置（毫秒） */
@@ -28,7 +29,7 @@ export const cancel = (): void => {
  * 推进检查；由 position 事件驱动，到达阈值且当前曲目仍是被调度的那一首才触发
  * @param positionMs - 当前播放位置（毫秒）
  */
-export const tick = (positionMs: number): void => {
+export const tick = async (positionMs: number): Promise<void> => {
   if (!pending) return;
   if (positionMs < TRIGGER_AT_MS) return;
   // 兜底：当前曲目已变
@@ -38,5 +39,7 @@ export const tick = (positionMs: number): void => {
   }
   const fire = pending.fire;
   pending = null;
+  const net = await getNetworkState();
+  if (!net.online) return;
   fire();
 };

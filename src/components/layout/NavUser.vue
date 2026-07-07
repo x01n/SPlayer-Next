@@ -6,6 +6,8 @@ import vipImg from "@/assets/images/vip.png";
 import IconLucideListMusic from "~icons/lucide/list-music";
 import IconLucideDisc3 from "~icons/lucide/disc-3";
 import IconLucideUserRound from "~icons/lucide/user-round";
+import IconLucideUsers from "~icons/lucide/users";
+import IconLucideLogIn from "~icons/lucide/log-in";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -18,6 +20,19 @@ const popoverOpen = ref(false);
 onMounted(() => {
   if (user.profile) {
     user.fetchStatus().catch(() => undefined);
+  }
+  // 同时刷新其他平台登录态
+  if (user.isQQMusicLoggedIn) {
+    user.qqmusicFetchStatus().catch(() => undefined);
+  }
+  if (user.isSpotifyLoggedIn) {
+    user.spotifyFetchStatus().catch(() => undefined);
+  }
+  if (user.isKugouLoggedIn) {
+    user.kugouFetchStatus().catch(() => undefined);
+  }
+  if (user.isBilibiliLoggedIn) {
+    user.bilibiliFetchStatus().catch(() => undefined);
   }
 });
 
@@ -47,6 +62,42 @@ const stats = computed(() => [
   },
 ]);
 
+/** 各平台登录状态 */
+const platformStatuses = computed(() => [
+  {
+    key: "netease" as const,
+    name: t("login.platform.netease"),
+    loggedIn: user.isLoggedIn,
+    displayName: user.profile?.nickname,
+  },
+  {
+    key: "qqmusic" as const,
+    name: t("login.platform.qqmusic"),
+    loggedIn: user.isQQMusicLoggedIn,
+    displayName: user.qqmusicProfile?.nickname,
+  },
+  {
+    key: "spotify" as const,
+    name: t("login.platform.spotify"),
+    loggedIn: user.isSpotifyLoggedIn,
+    displayName: user.spotifyProfile?.displayName,
+  },
+  {
+    key: "kugou" as const,
+    name: t("login.platform.kugou"),
+    loggedIn: user.isKugouLoggedIn,
+    displayName: user.kugouProfile?.nickname,
+  },
+  {
+    key: "bilibili" as const,
+    name: t("login.platform.bilibili"),
+    loggedIn: user.isBilibiliLoggedIn,
+    displayName: user.bilibiliProfile?.nickname,
+  },
+]);
+
+const hasUnloggedPlatform = computed(() => platformStatuses.value.some((p) => !p.loggedIn));
+
 const onTriggerClick = (): void => {
   if (!user.isLoggedIn) loginOpen.value = true;
 };
@@ -54,6 +105,11 @@ const onTriggerClick = (): void => {
 const handleStatClick = (key: "playlist" | "album" | "artist"): void => {
   popoverOpen.value = false;
   router.push({ path: "/favorites", query: { tab: key } });
+};
+
+const handleManageAccounts = (): void => {
+  popoverOpen.value = false;
+  loginOpen.value = true;
 };
 
 const handleLogout = async (): Promise<void> => {
@@ -75,7 +131,7 @@ const handleLogout = async (): Promise<void> => {
     v-model:open="popoverOpen"
     trigger="click"
     align="end"
-    content-class="w-40"
+    content-class="w-56"
   >
     <template #trigger>
       <div
@@ -159,6 +215,36 @@ const handleLogout = async (): Promise<void> => {
         </div>
       </div>
       <SDivider class="w-full" />
+      <!-- 平台登录状态 -->
+      <div class="w-full flex flex-col gap-1.5">
+        <div
+          v-for="p in platformStatuses"
+          :key="p.key"
+          class="flex items-center justify-between px-2 py-1 rounded-md text-xs"
+          :class="p.loggedIn ? 'text-on-surface' : 'text-on-surface-variant/60'"
+        >
+          <span class="font-medium">{{ p.name }}</span>
+          <span class="truncate max-w-[5rem]">
+            {{ p.loggedIn ? (p.displayName || t("login.unknownUser")) : t("login.notLoggedIn") }}
+          </span>
+        </div>
+      </div>
+      <SDivider class="w-full" />
+      <!-- 登录其他平台 / 账号管理 -->
+      <SButton
+        v-if="hasUnloggedPlatform"
+        variant="ghost"
+        size="small"
+        block
+        @click="handleManageAccounts"
+      >
+        <template #icon><IconLucideLogIn class="size-4" /></template>
+        {{ t("login.loginOtherPlatform") }}
+      </SButton>
+      <SButton variant="ghost" size="small" block @click="handleManageAccounts">
+        <template #icon><IconLucideUsers class="size-4" /></template>
+        {{ t("login.manageAccounts") }}
+      </SButton>
       <SButton variant="secondary" size="small" block @click="handleLogout">
         <template #icon><IconLucideLogOut /></template>
         {{ t("login.logout") }}

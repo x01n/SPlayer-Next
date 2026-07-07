@@ -3,7 +3,7 @@
  */
 
 /** 支持的音源平台 */
-export type ApiPlatform = "netease" | "qqmusic" | "kugou" | "spotify";
+export type ApiPlatform = "netease" | "qqmusic" | "kugou" | "spotify" | "bilibili";
 
 /** 通用响应包装 */
 export type ApiCallResponse =
@@ -43,4 +43,46 @@ export interface ApisApi {
     platform: ApiPlatform,
     cookie: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * QQ 音乐登录
+   * @returns 登录成功返回 profile
+   */
+  qqmusicLogin: () => Promise<
+    | { ok: true; profile: { userId: string; nickname: string; avatarUrl?: string } | null }
+    | { ok: false; error: string }
+  >;
+  /**
+   * QQ 音乐登出
+   */
+  qqmusicLogout: () => Promise<{ ok: true }>;
+  /**
+   * 获取 QQ 音乐登录状态
+   */
+  qqmusicFetchStatus: () => Promise<
+    | { ok: true; profile: { userId: string; nickname: string; avatarUrl?: string } | null }
+    | { ok: false; error: string }
+  >;
+}
+
+/** QQ 音乐独立 API */
+export interface QQMusicApi {
+  /**
+   * 打开 QQ 音乐网页登录窗口
+   * @returns 登录成功返回用户资料
+   */
+  login: () => Promise<
+    | { ok: true; profile: { userId: string; nickname: string; avatarUrl?: string } | null }
+    | { ok: false; error: string }
+  >;
+  /**
+   * 退出 QQ 音乐登录
+   */
+  logout: () => Promise<{ ok: true }>;
+  /**
+   * 获取 QQ 音乐登录状态
+   */
+  getStatus: () => Promise<
+    | { ok: true; profile: { userId: string; nickname: string; avatarUrl?: string } | null }
+    | { ok: false; error: string }
+  >;
 }

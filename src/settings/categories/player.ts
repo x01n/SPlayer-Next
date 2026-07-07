@@ -1,6 +1,7 @@
 import type { SettingCategory } from "@/types/settings-schema";
 import { useSettingsStore } from "@/stores/settings";
 import DeviceSelector from "@/components/settings/custom/DeviceSelector.vue";
+import PlayerBgFilePicker from "@/components/settings/custom/PlayerBgFilePicker.vue";
 import IconLucidePlay from "~icons/lucide/play";
 
 /** 当前是否为流体背景 */
@@ -17,13 +18,13 @@ const playerCategory: SettingCategory = {
           key: "autoPlay",
           type: "switch",
           binding: { store: "settings", path: "system.player.autoPlay" },
-          defaultValue: true,
+          defaultValue: false,
         },
         {
           key: "rememberLastTrack",
           type: "switch",
           binding: { store: "settings", path: "system.player.rememberLastTrack" },
-          defaultValue: false,
+          defaultValue: true,
         },
         {
           key: "fadeEnabled",
@@ -72,13 +73,13 @@ const playerCategory: SettingCategory = {
         {
           key: "neteaseScrobbleEnabled",
           type: "switch",
-          binding: { store: "settings", path: "system.system.neteaseScrobbleEnabled" },
+          binding: { store: "settings", path: "system.neteaseScrobbleEnabled" },
           defaultValue: false,
           children: [
             {
               key: "neteaseScrobbleMode",
               type: "select",
-              binding: { store: "settings", path: "system.system.neteaseScrobbleMode" },
+              binding: { store: "settings", path: "system.neteaseScrobbleMode" },
               options: [
                 { value: "legacy", labelKey: "settings.neteaseScrobbleMode.legacy" },
                 { value: "ncbl", labelKey: "settings.neteaseScrobbleMode.ncbl" },
@@ -100,6 +101,9 @@ const playerCategory: SettingCategory = {
             { value: "blur", labelKey: "settings.playerBgType.blur" },
             { value: "solid", labelKey: "settings.playerBgType.solid" },
             { value: "animation", labelKey: "settings.playerBgType.animation" },
+            { value: "video", labelKey: "settings.playerBgType.video" },
+            { value: "customImage", labelKey: "settings.playerBgType.customImage" },
+            { value: "customVideo", labelKey: "settings.playerBgType.customVideo" },
           ],
           defaultValue: "blur",
           confirm: {
@@ -154,6 +158,20 @@ const playerCategory: SettingCategory = {
               defaultValue: false,
             },
           ],
+        },
+        {
+          key: "playerBgCustomImage",
+          type: "custom",
+          component: PlayerBgFilePicker,
+          componentProps: { type: "image" },
+          descriptionKey: "settings.playerBgCustomImage.description",
+        },
+        {
+          key: "playerBgCustomVideo",
+          type: "custom",
+          component: PlayerBgFilePicker,
+          componentProps: { type: "video" },
+          descriptionKey: "settings.playerBgCustomVideo.description",
         },
         {
           key: "coverLayout",
@@ -249,6 +267,7 @@ const playerCategory: SettingCategory = {
           key: "outputDevice",
           type: "custom",
           component: DeviceSelector,
+          hideDescription: true,
         },
         {
           key: "pauseOnDeviceSwitch",

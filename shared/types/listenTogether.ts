@@ -17,6 +17,10 @@ export interface ListenTogetherMember {
   joinedAt: number;
   /** 最后活跃时间戳 */
   lastActiveAt: number;
+  /** 是否在线 */
+  online: boolean;
+  /** 断线时间戳 */
+  disconnectedAt?: number;
 }
 
 /** 一起听队列项 */
@@ -262,6 +266,7 @@ export interface ListenTogetherServerMessage {
     | "joined"
     | "memberJoined"
     | "memberLeft"
+    | "roomUpdate"
     | "sync"
     | "proposal"
     | "voteUpdate"

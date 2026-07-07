@@ -146,7 +146,8 @@ export const registerConfigIpc = (): void => {
       });
       if (result.canceled || !result.filePath) return { ok: false, reason: "canceled" };
       try {
-        await fs.writeFile(result.filePath, JSON.stringify(payload, null, 2), "utf-8");
+        const data = payload ?? store.store;
+        await fs.writeFile(result.filePath, JSON.stringify(data, null, 2), "utf-8");
         systemLog.info(`[config] settings exported to ${result.filePath}`);
         return { ok: true };
       } catch (err) {

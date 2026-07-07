@@ -32,7 +32,12 @@ pub struct DecoderData {
     /// 中断标志：仅网络源持有；本地 File 不会长时间阻塞，没必要绑
     /// 通过 shared.bind_interrupt 注入，外部 stop() 触发后 HttpRangeSource::read 会返回 Interrupted
     interrupt_flag: Option<Arc<AtomicBool>>,
+    /// 是否为网络源：用于解码异常时区分数据层错误（可容忍）与 IO 层错误（必须上报）
+    is_network_source: bool,
 }
+
+/// open_source 返回类型别名，避免 type_complexity clippy 报错
+pub(crate) type OpenSourceResult = (AudioReader, Resampler, Resampler, Option<Arc<AtomicBool>>, bool);
 
 impl DecoderData {
     /// 在已有 reader 上 seek，失败时调用方应回退到完整 load
@@ -78,7 +83,7 @@ pub fn start_decode(
 ) -> Result<(AudioMetadata, JoinHandle<DecoderData>)> {
     // 播放重采样目标 = 输出设备原生采样率
     let target_rate = shared.sample_rate();
-    let (reader, player_resampler, fft_resampler, interrupt_flag) = open_source(source, target_rate)?;
+    let (reader, player_resampler, fft_resampler, interrupt_flag, is_network_source) = open_source(source, target_rate)?;
     if let Some(ref flag) = interrupt_flag {
         shared.bind_interrupt(Arc::clone(flag));
     }
@@ -125,6 +130,7 @@ pub fn start_decode(
         player_resampler,
         fft_resampler,
         interrupt_flag,
+        is_network_source,
     };
 
     let handle = thread::spawn(move || {
@@ -163,18 +169,18 @@ pub fn resume_decode(data: DecoderData, shared: Arc<Shared>) -> JoinHandle<Decod
 fn open_source(
     source: &str,
     target_rate: u32,
-) -> Result<(AudioReader, Resampler, Resampler, Option<Arc<AtomicBool>>)> {
-    let (reader, cancel) = if http_source::is_network_source(source) {
+) -> Result<OpenSourceResult> {
+    let (reader, cancel, is_network) = if http_source::is_network_source(source) {
         let http = http_source::HttpRangeSource::new(source)?;
         let cancel = http.cancel_handle();
         let reader =
             AudioReader::new(http).with_context(|| format!("打开网络音频失败: {source}"))?;
-        (reader, Some(cancel))
+        (reader, Some(cancel), true)
     } else {
         let file = File::open(source).with_context(|| format!("打开本地文件失败: {source}"))?;
         let reader =
             AudioReader::new(file).with_context(|| format!("打开本地音频失败: {source}"))?;
-        (reader, None)
+        (reader, None, false)
     };
 
     let player_opts = ResampleOptions::new()
@@ -194,7 +200,7 @@ fn open_source(
         .build_resampler(fft_opts)
         .with_context(|| "构建 FFT 重采样器失败")?;
 
-    Ok((reader, player_resampler, fft_resampler, cancel))
+    Ok((reader, player_resampler, fft_resampler, cancel, is_network))
 }
 
 /// 核心解码循环：每帧解码一次，零拷贝分发到播放 + FFT 两个重采样器
@@ -282,7 +288,8 @@ fn run_decoding_loop(data: &mut DecoderData, shared: &Shared) {
                 let io_failure = match &e {
                     AudioError::Io(_) => true,
                     AudioError::FFmpeg(code, _) => *code == AVERROR_EIO,
-                    _ => false,
+                    // 网络源的中途非 EOF 异常应视为源故障，避免误报正常结束
+                    _ => data.is_network_source,
                 };
                 if io_failure || !had_success {
                     shared.mark_decode_failed();

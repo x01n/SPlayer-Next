@@ -260,5 +260,5 @@ export const getLyrics = (
   if (isSubsonic(cfg.type)) return subsonic.getLyrics(cfg, originalId, hint);
   if (cfg.type === "jellyfin") return jellyfin.getLyrics(cfg, originalId);
   if (cfg.type === "emby") return emby.getLyrics(cfg, originalId);
-  return Promise.resolve(null);
+  throw unsupported(cfg);
 };

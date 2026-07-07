@@ -4,6 +4,8 @@ import { useStatusStore } from "@/stores/status";
 import { toast } from "@/composables/useToast";
 import { formatDate } from "@/utils/time";
 import IconLucideThumbsUp from "~icons/lucide/thumbs-up";
+import IconLucideRefreshCw from "~icons/lucide/refresh-cw";
+import IconLucideMessageCircleOff from "~icons/lucide/message-circle-off";
 
 const { t } = useI18n();
 const status = useStatusStore();
@@ -14,7 +16,6 @@ const activeTab = ref<"hot" | "new">("hot");
 const loadingCount = ref(0);
 const error = ref("");
 const listScrollRef = ref<HTMLElement | null>(null);
-let loadingEpoch = 0;
 const pages = reactive<Record<"hot" | "new", MusicCommentPage>>({
   hot: { list: [], total: 0, page: 1, limit: 20 },
   new: { list: [], total: 0, page: 1, limit: 20 },
@@ -60,7 +61,6 @@ const loadPage = async (type: "hot" | "new", pageNo = 1): Promise<void> => {
   const token = requestTokens[type] + 1;
   requestTokens[type] = token;
   const contextKey = makeContextKey(track.id, sourceId.value);
-  const epoch = loadingEpoch;
   loadingCount.value += 1;
   error.value = "";
   try {
@@ -81,7 +81,7 @@ const loadPage = async (type: "hot" | "new", pageNo = 1): Promise<void> => {
     error.value = err instanceof Error ? err.message : String(err);
     toast.error(error.value);
   } finally {
-    if (epoch === loadingEpoch) loadingCount.value = Math.max(0, loadingCount.value - 1);
+    loadingCount.value = Math.max(0, loadingCount.value - 1);
   }
 };
 
@@ -104,7 +104,6 @@ watch(
   () => status.commentsOpen,
   async (open) => {
     if (!open) {
-      loadingEpoch += 1;
       loadingCount.value = 0;
       requestTokens.hot += 1;
       requestTokens.new += 1;
@@ -117,8 +116,16 @@ watch(
 
 watch(sourceId, (next, prev) => {
   if (!status.commentsOpen || !next || !prev || next === prev) return;
+  if (prev === "") return;
   refresh().catch(() => {});
 });
+watch(
+  () => status.commentsTrack,
+  (track) => {
+    if (!status.commentsOpen || !track) return;
+    refresh();
+  },
+);
 </script>
 
 <template>

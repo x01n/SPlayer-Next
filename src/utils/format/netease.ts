@@ -119,36 +119,48 @@ export const songsToTracks = (songs: NeteaseSong[] | undefined | null): Track[] 
  * 歌单条目 → 应用层 Playlist
  * 适用 `/user/playlist` 与 `/playlist/detail` 的 playlist 字段
  */
-export const toPlaylist = (raw: any): Playlist => ({
-  id: String(raw.id),
-  name: raw.name,
-  cover: withPicSize(raw.coverImgUrl),
-  description: raw.description,
-  trackCount: raw.trackCount,
-  owner: raw.creator?.nickname,
-});
+export const toPlaylist = (raw: any): Playlist => {
+  if (!raw) return { id: "", name: "" };
+  return {
+    id: raw.id != null ? String(raw.id) : "",
+    name: raw.name ?? "",
+    cover: withPicSize(raw.coverImgUrl),
+    description: raw.description,
+    trackCount: raw.trackCount ?? 0,
+    owner: raw.creator?.nickname,
+  };
+};
 
 /** 收藏专辑（/album/sublist 元素）→ 应用层 Album */
-export const toAlbum = (raw: any): Album => ({
-  id: String(raw.id),
-  name: raw.name,
-  cover: withPicSize(raw.picUrl),
-  artist: raw.artists?.map((a: { name: string }) => a.name).join(" / ") ?? raw.artist?.name,
-  trackCount: raw.size,
-  year: raw.publishTime ? new Date(raw.publishTime).getFullYear() : undefined,
-});
+export const toAlbum = (raw: any): Album => {
+  if (!raw) return { id: "", name: "" };
+  return {
+    id: raw.id != null ? String(raw.id) : "",
+    name: raw.name ?? "",
+    cover: withPicSize(raw.picUrl),
+    artist: raw.artists?.map((a: { name: string }) => a.name).join(" / ") ?? raw.artist?.name,
+    trackCount: raw.size ?? 0,
+    year: raw.publishTime ? new Date(raw.publishTime).getFullYear() : undefined,
+  };
+};
 
 /** 收藏歌手（/artist/sublist 元素）→ 应用层 Artist */
-export const toArtist = (raw: any): Artist => ({
-  id: String(raw.id),
-  name: raw.name,
-  avatar: withPicSize(raw.img1v1Url ?? raw.picUrl),
-  albumCount: raw.albumSize,
-});
+export const toArtist = (raw: any): Artist => {
+  if (!raw) return { id: "", name: "" };
+  return {
+    id: raw.id != null ? String(raw.id) : "",
+    name: raw.name ?? "",
+    avatar: withPicSize(raw.img1v1Url ?? raw.picUrl),
+    albumCount: raw.albumSize ?? 0,
+  };
+};
 
 /** 订阅计数（/user/subcount）→ 应用层 UserSubcount */
-export const toSubcount = (raw: any): UserSubcount => ({
-  createdPlaylistCount: raw.createdPlaylistCount ?? 0,
-  subPlaylistCount: raw.subPlaylistCount ?? 0,
-  artistCount: raw.artistCount ?? 0,
-});
+export const toSubcount = (raw: any): UserSubcount => {
+  if (!raw) return { createdPlaylistCount: 0, subPlaylistCount: 0, artistCount: 0 };
+  return {
+    createdPlaylistCount: raw.createdPlaylistCount ?? 0,
+    subPlaylistCount: raw.subPlaylistCount ?? 0,
+    artistCount: raw.artistCount ?? 0,
+  };
+};

@@ -37,7 +37,7 @@ const bothContains = (left: string, right: string): boolean =>
 
 /** 时长差判定（ms） */
 const durationDiff = (leftMs?: number, rightMs?: number): number | null => {
-  if (!leftMs || !rightMs) return null;
+  if (leftMs == null || rightMs == null) return null;
   return Math.abs(leftMs - rightMs);
 };
 

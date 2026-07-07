@@ -3,8 +3,14 @@ import { useSettingsStore } from "@/stores/settings";
 import { useThemeStore } from "@/stores/theme";
 import { useMediaStore } from "@/stores/media";
 import { useStatusStore } from "@/stores/status";
+import {
+  getTrackVideoBg,
+  refreshTrackVideoBg,
+  type TrackVideoBgItem,
+} from "@/composables/useTrackVideoBg";
 import DEFAULT_COVER from "@/assets/images/song.jpg";
 import BackgroundRender from "./BackgroundRender.vue";
+import { getVideoUrl } from "@/apis/bilibili";
 
 const media = useMediaStore();
 const settings = useSettingsStore();
@@ -50,13 +56,208 @@ const bgPlaying = computed(() => {
   return true;
 });
 
+/** 按歌曲配置的视频背景 */
+const trackVideoBg = ref<TrackVideoBgItem | null>(null);
+
+/** 当歌曲切换时，异步加载按歌曲配置的视频背景 */
+watch(
+  () => media.track?.id,
+  async (trackId) => {
+    if (trackId) {
+      const result = await getTrackVideoBg(trackId);
+      // 丢弃过期的异步结果，避免歌曲快速切换时的竞态
+      if (trackId === media.track?.id) {
+        trackVideoBg.value = result;
+      }
+    } else {
+      trackVideoBg.value = null;
+    }
+  },
+  { immediate: true },
+);
+
+// 实际生效的背景类型，video / customImage / customVideo 无源或加载失败时回退到 blur
+const effectiveBgType = computed(() => {
+  if (bgType.value === "video" && !videoLoadError.value && trackVideoBg.value?.videoUrl) {
+    return "video";
+  }
+  if (bgType.value === "video" && !videoLoadError.value && media.track?.video?.url) {
+    return "video";
+  }
+  if (bgType.value === "video") {
+    return "blur";
+  }
+  if (bgType.value === "customImage" && settings.player.playerBgCustomImage) {
+    return "customImage";
+  }
+  if (bgType.value === "customImage") {
+    return "blur";
+  }
+  if (
+    bgType.value === "customVideo" &&
+    !videoLoadError.value &&
+    settings.player.playerBgCustomVideo
+  ) {
+    return "customVideo";
+  }
+  if (bgType.value === "customVideo") {
+    return "blur";
+  }
+  return bgType.value;
+});
+
+const videoRef = ref<HTMLVideoElement | null>(null);
+
+/** 视频加载失败标记，失败时回退到模糊背景 */
+const videoLoadError = ref(false);
+
+/** 视频重试次数，限制重新解析次数避免无限循环 */
+const videoRetryCount = ref(0);
+
+/** 处理视频加载错误，Bilibili 来源 URL 过期时尝试重新解析 */
+const onVideoError = async () => {
+  const isBiliTrackVideoBg = trackVideoBg.value?.source === "bilibili";
+  const isBiliTrackVideo = media.track?.video?.source === "bilibili";
+
+  if ((isBiliTrackVideoBg || isBiliTrackVideo) && videoRetryCount.value < 2) {
+    videoRetryCount.value++;
+    console.warn("[PlayerBackground] 视频背景 URL 可能已过期，尝试重新解析...");
+
+    let refreshed = false;
+    if (isBiliTrackVideoBg && media.track?.id) {
+      const result = await refreshTrackVideoBg(media.track.id);
+      if (result) {
+        trackVideoBg.value = result;
+        refreshed = true;
+      }
+    }
+
+    if (!refreshed && isBiliTrackVideo && media.track?.video?.bvid && media.track?.video?.cid) {
+      try {
+        const newUrl = await getVideoUrl(media.track.video.bvid, media.track.video.cid);
+        if (media.track) {
+          media.setTrack(
+            { ...media.track, video: { ...media.track.video, url: newUrl } },
+            media.detail,
+          );
+        }
+        refreshed = true;
+      } catch (err) {
+        console.warn("[PlayerBackground] 重新解析视频 URL 失败:", err);
+      }
+    }
+
+    if (!refreshed) {
+      videoLoadError.value = true;
+      console.warn("[PlayerBackground] 视频背景重新解析失败，回退到模糊背景");
+    }
+  } else {
+    videoLoadError.value = true;
+    console.warn("[PlayerBackground] 视频背景加载失败，回退到模糊背景");
+  }
+};
+
+const configuredVideoSrc = computed(() => {
+  if (bgType.value === "customVideo") {
+    return settings.player.playerBgCustomVideo || "";
+  }
+  if (bgType.value === "video") {
+    return trackVideoBg.value?.videoUrl || media.track?.video?.url || "";
+  }
+  return "";
+});
+
+/** 视频源切换时变更 key，强制重建 video 元素以避免残留帧 */
+const videoKey = computed(() => configuredVideoSrc.value);
+
+/** 当前视频源地址 */
+const videoSrc = computed(() => configuredVideoSrc.value);
+
+/** 判断视频源是否为跨域地址，需要添加 crossorigin 属性 */
+const isVideoCrossOrigin = computed(() => {
+  const src = videoSrc.value;
+  if (!src) return false;
+  if (src.startsWith("blob:") || src.startsWith("data:")) return false;
+  return src.startsWith("http://") || src.startsWith("https://");
+});
+
+// 视频源切换时重置错误标记和重试次数
+watch(
+  () => configuredVideoSrc.value,
+  () => {
+    videoLoadError.value = false;
+    videoRetryCount.value = 0;
+  },
+);
+
+// 同步视频播放状态与音频
+watch(
+  () => status.isPlaying,
+  (playing) => {
+    if (
+      (effectiveBgType.value !== "video" && effectiveBgType.value !== "customVideo") ||
+      !videoRef.value
+    )
+      return;
+    if (playing) {
+      videoRef.value.play().catch(() => {});
+    } else {
+      videoRef.value.pause();
+    }
+  },
+);
+
+// 切换到 video / customVideo 模式时，根据当前播放状态立即同步
+watch(
+  () => effectiveBgType.value,
+  (type) => {
+    if (type !== "video" && type !== "customVideo") return;
+    nextTick(() => {
+      if (!videoRef.value) return;
+      if (status.isPlaying) {
+        videoRef.value.play().catch(() => {});
+      } else {
+        videoRef.value.pause();
+      }
+    });
+  },
+);
+
+// 当 bgReady 变为 true 时（如展开播放器），同步视频播放状态
+watch(
+  () => bgReady.value,
+  (ready) => {
+    if (!ready || (effectiveBgType.value !== "video" && effectiveBgType.value !== "customVideo"))
+      return;
+    nextTick(() => {
+      if (!videoRef.value) return;
+      if (status.isPlaying) {
+        videoRef.value.play().catch(() => {});
+      } else {
+        videoRef.value.pause();
+      }
+    });
+  },
+);
+
+// video 元素重建（key 变化）后同步播放状态
+watch(videoRef, (el) => {
+  if (!el || (effectiveBgType.value !== "video" && effectiveBgType.value !== "customVideo")) return;
+  if (status.isPlaying) {
+    el.play().catch(() => {});
+  } else {
+    el.pause();
+  }
+});
+
 // 封面颜色（纯色模式）
 const coverColor = computed(() => {
   const hex = theme.coverColor;
-  if (!hex) return "20, 20, 28";
+  if (!hex || hex.length < 7 || !hex.startsWith("#")) return "20, 20, 28";
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return "20, 20, 28";
   return `${r}, ${g}, ${b}`;
 });
 
@@ -125,9 +326,53 @@ onBeforeUnmount(() => {
   <div class="absolute inset-0 overflow-hidden -z-1 bg-solid-wrap">
     <div class="color" :style="{ backgroundColor: `rgb(${coverColor})` }" />
   </div>
+  <!-- 视频背景（含自定义视频） -->
+  <Transition
+    v-if="effectiveBgType === 'video' || effectiveBgType === 'customVideo'"
+    name="bg-fade"
+  >
+    <div
+      v-if="bgReady && !videoLoadError"
+      class="absolute inset-0 overflow-hidden -z-1 bg-video-wrap"
+      aria-hidden="true"
+    >
+      <video
+        ref="videoRef"
+        :key="videoKey"
+        :src="videoSrc"
+        :crossorigin="isVideoCrossOrigin ? 'anonymous' : undefined"
+        muted
+        loop
+        playsinline
+        disablePictureInPicture
+        preload="metadata"
+        class="bg-video"
+        @error="onVideoError"
+      />
+    </div>
+  </Transition>
+  <!-- 自定义图片背景 -->
+  <Transition v-else-if="effectiveBgType === 'customImage'" name="bg-fade">
+    <div
+      v-if="bgReady"
+      class="absolute inset-0 overflow-hidden -z-1 bg-blur-wrap"
+      aria-hidden="true"
+    >
+      <img
+        :src="settings.player.playerBgCustomImage || DEFAULT_COVER"
+        class="bg-img active"
+        decoding="async"
+        alt=""
+      />
+    </div>
+  </Transition>
   <!-- 模糊背景 -->
-  <Transition v-if="bgType === 'blur'" name="bg-fade">
-    <div v-if="bgReady" class="absolute inset-0 overflow-hidden -z-1 bg-blur-wrap">
+  <Transition v-else-if="effectiveBgType === 'blur'" name="bg-fade">
+    <div
+      v-if="bgReady"
+      class="absolute inset-0 overflow-hidden -z-1 bg-blur-wrap"
+      aria-hidden="true"
+    >
       <img
         v-for="(layer, index) in blurLayers"
         :key="index"
@@ -139,7 +384,7 @@ onBeforeUnmount(() => {
     </div>
   </Transition>
   <!-- 流体背景 -->
-  <Transition v-else-if="bgType === 'animation'" name="bg-fade">
+  <Transition v-else-if="effectiveBgType === 'animation'" name="bg-fade">
     <div v-if="bgReady" class="absolute inset-0 overflow-hidden -z-1">
       <BackgroundRender
         :album="media.track?.cover || DEFAULT_COVER"
@@ -215,5 +460,27 @@ onBeforeUnmount(() => {
 .bg-fade-enter-from,
 .bg-fade-leave-to {
   opacity: 0;
+}
+
+/* 视频背景 */
+.bg-video-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bg-video-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 1;
+}
+
+.bg-video-wrap .bg-video {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 </style>

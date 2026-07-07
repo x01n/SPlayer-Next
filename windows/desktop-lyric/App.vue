@@ -236,14 +236,6 @@ const onLockBtnLeave = (): void => {
   if (config.locked) window.api.desktopLyric.setMouseIgnore(true);
 };
 
-/** 窗口 resize 后重新布局 */
-const onWindowResize = (): void => {
-  // 触发 Vue 的响应式更新，重新计算所有布局
-  nextTick(() => {
-    // 如果当前有过渡动画，先暂停避免冲突
-  });
-};
-
 /** 配置变更订阅取消器 */
 let unsubConfig: (() => void) | null = null;
 
@@ -255,12 +247,10 @@ onMounted(async () => {
     console.error("[desktop-lyric] load config failed", error);
   }
   pushWindowHeight();
-  window.addEventListener("resize", onWindowResize);
   unsubConfig = window.api.desktopLyric.onConfigChange((next) => Object.assign(config, next));
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", onWindowResize);
   unsubConfig?.();
   unsubConfig = null;
 });
@@ -406,6 +396,7 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   background: var(--dl-bg, transparent);
   cursor: move;
+  position: relative;
   transition: background-color 0.2s ease;
 }
 .root.locked {

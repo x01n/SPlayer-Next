@@ -7,8 +7,11 @@ import { REPO_URL, REPO_NAME, APP_VERSION } from "@/utils/config";
 
 const { initialCategory, initialHighlight, rememberCategory } = useSettingsDialog();
 
-// 同步后端配置
-useSettingsStore().syncSystem();
+// 同步后端配置（避免重复发起）
+const settingsStore = useSettingsStore();
+if (!settingsStore.hasSynced) {
+  settingsStore.syncSystem();
+}
 const { t } = useI18n();
 
 const activeId = ref(initialCategory.value);

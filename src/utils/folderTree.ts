@@ -88,7 +88,7 @@ export const buildFolderTree = (
       cursor.tracks.push(track);
       if (cursor === rootNode) break;
       const cur = normalizePath(cursor.path);
-      const parentPath = cur.slice(0, Math.max(0, cur.lastIndexOf("/")));
+      const parentPath = cur.slice(0, Math.max(0, cur.lastIndexOf("/"))) || "/";
       cursor = folderIndex.get(parentPath);
     }
   }

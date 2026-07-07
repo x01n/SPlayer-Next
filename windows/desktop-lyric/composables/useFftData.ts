@@ -49,7 +49,7 @@ export const stopFftListening = (): void => {
   unsubEvent?.();
   unsubEvent = null;
   releaseFft();
-  fftFrame.value.fill(0);
+  fftFrame.value = new Float32Array(FFT_SIZE);
 };
 
 /**

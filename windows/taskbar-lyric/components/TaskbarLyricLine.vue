@@ -53,7 +53,7 @@ const getScrollTransform = (currentMs: number): string => {
   return `translateX(-${offset.toFixed(3)}px)`;
 };
 
-const wordRefs: HTMLSpanElement[] = [];
+const wordRefs: (HTMLSpanElement | undefined)[] = [];
 
 const getWordProgress = (
   word: { startTime: number; endTime: number },
@@ -71,7 +71,7 @@ const setWordRef = (el: Element | { $el?: Element } | null, index: number): void
   if (target instanceof HTMLSpanElement) {
     wordRefs[index] = target;
   } else {
-    delete wordRefs[index];
+    wordRefs[index] = undefined;
   }
 };
 
@@ -86,7 +86,24 @@ const resetRenderCache = (): void => {
   wordRefs.length = 0;
 };
 
+const startRenderLoop = (): void => {
+  if (rafId === 0) {
+    rafId = requestAnimationFrame(renderFrame);
+  }
+};
+
+const stopRenderLoop = (): void => {
+  if (rafId !== 0) {
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+};
+
 const renderFrame = (): void => {
+  if (!useKaraoke.value && !isOverflow.value) {
+    rafId = 0;
+    return;
+  }
   const currentMs = getNowPlayingCurrentMs();
 
   if (contentRef.value) {
@@ -123,22 +140,41 @@ watch(
   () => props.text,
   () => nextTick(measure),
 );
+watch(
+  () => props.wordByWord,
+  () => {
+    resetRenderCache();
+    nextTick(measure);
+    if (useKaraoke.value || isOverflow.value) {
+      startRenderLoop();
+    } else {
+      stopRenderLoop();
+    }
+  },
+);
+
+const onVisibilityChange = (): void => {
+  if (document.hidden) {
+    stopRenderLoop();
+  } else if (useKaraoke.value || isOverflow.value) {
+    startRenderLoop();
+  }
+};
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(measure);
   if (wrapperRef.value) resizeObserver.observe(wrapperRef.value);
   if (contentRef.value) resizeObserver.observe(contentRef.value);
   measure();
-  rafId = requestAnimationFrame(renderFrame);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  startRenderLoop();
 });
 
 onBeforeUnmount(() => {
-  if (rafId !== 0) {
-    cancelAnimationFrame(rafId);
-    rafId = 0;
-  }
+  stopRenderLoop();
   resizeObserver?.disconnect();
   resizeObserver = null;
+  document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 </script>
 
