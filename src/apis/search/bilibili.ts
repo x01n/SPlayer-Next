@@ -27,9 +27,6 @@ export const songs = async (
     artists: [{ name: item.author }],
     cover: normalizeUrl(item.pic),
     duration: item.duration * 1000,
-    video: {
-      url: `https://player.bilibili.com/player.html?bvid=${item.bvid}&page=1&high_quality=1&danmaku=0`,
-    },
   }));
   return { items: tracks, total, hasMore };
 };

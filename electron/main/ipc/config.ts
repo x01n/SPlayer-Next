@@ -28,11 +28,28 @@ import {
 } from "@main/window";
 import { broadcast } from "@main/utils/broadcast";
 import { isWin } from "@main/utils/config";
-import { startServer, stopServer } from "@main/server";
+import {
+  startServer,
+  stopServer,
+  restartServer,
+  ensureServerAuthKeys,
+} from "@main/server";
 import { setOrpheusProtocolRegistered } from "@main/services/orpheus";
 import { setTaskbarThumbnailEnabled } from "@main/services/thumbnail";
 
 /** 配置写入后的副作用 */
+const syncNetworkServer = (): void => {
+  ensureServerAuthKeys();
+  const shouldListen = store.get("externalApi.enabled") || store.get("listenTogether.enabled");
+  void (shouldListen ? startServer() : stopServer());
+};
+
+const restartNetworkServer = (): void => {
+  ensureServerAuthKeys();
+  const shouldListen = store.get("externalApi.enabled") || store.get("listenTogether.enabled");
+  void (shouldListen ? restartServer() : stopServer());
+};
+
 const applyConfigChange = (keyPath: string, value: unknown): void => {
   switch (keyPath) {
     case "media.systemMediaControls":
@@ -71,7 +88,16 @@ const applyConfigChange = (keyPath: string, value: unknown): void => {
       setOrpheusProtocolRegistered(value as boolean);
       break;
     case "externalApi.enabled":
-      void (value ? startServer() : stopServer());
+    case "listenTogether.enabled":
+      syncNetworkServer();
+      break;
+    case "externalApi.port":
+    case "externalApi.allowLan":
+      restartNetworkServer();
+      break;
+    case "externalApi.apiKey":
+    case "listenTogether.authKey":
+      if (!value) ensureServerAuthKeys();
       break;
     case "system.uiZoom":
       applyMainWindowZoom();
@@ -124,11 +150,15 @@ export const registerConfigIpc = (): void => {
     applyConfigChange(keyPath, value);
   });
   ipcMain.handle("config:getAll", () => store.store);
-  ipcMain.handle("config:reset", () => store.clear());
+  ipcMain.handle("config:reset", () => {
+    store.clear();
+    syncNetworkServer();
+  });
 
   /** 替换整盘配置 */
   ipcMain.handle("config:replaceAll", (_event, payload: unknown) => {
     store.replaceAll(payload);
+    restartNetworkServer();
   });
 
   /** 备份 */

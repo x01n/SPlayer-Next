@@ -2012,8 +2012,12 @@
       "description": "开启一起听功能，允许创建或加入房间"
     },
     "listenTogetherAuthKey": {
-      "label": "鉴权密钥",
-      "description": "房主创建房间时使用的鉴权密钥"
+      "label": "服务器鉴权密钥",
+      "description": "创建和加入房间时使用的服务器级鉴权密钥；留空时自动生成"
+    },
+    "listenTogetherServerUrl": {
+      "label": "对外服务地址",
+      "description": "用于生成邀请链接的公网、内网穿透或反向代理地址；留空时使用本地监听地址"
     },
     "listenTogetherDefaultRoomName": {
       "label": "默认房间名称",
@@ -2065,6 +2069,10 @@
     "bilibiliAccount": {
       "label": "Bilibili 账号",
       "description": "登录 Bilibili 账号"
+    },
+    "bilibiliHighQualityAudio": {
+      "label": "优先使用 Bilibili 音频",
+      "description": "原平台解析失败或音质较低时，尝试从 Bilibili 获取音频；关闭后不使用回退"
     },
     "kugouAccount": {
       "label": "酷狗音乐账号",

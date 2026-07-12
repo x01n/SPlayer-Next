@@ -148,11 +148,16 @@ const stopCapture = (): void => {
   }
 };
 
-// 暂停时停止 FFT 推送 + RAF 重绘
+// 页面可见性门控：隐藏时停止 RAF 和 FFT
+const pageVisible = ref(!document.hidden);
+const onVisChange = () => {
+  pageVisible.value = !document.hidden;
+};
+
 watch(
-  () => status.isPlaying,
-  (playing) => {
-    if (playing) startCapture();
+  [() => status.isPlaying, pageVisible],
+  ([playing, visible]) => {
+    if (playing && visible) startCapture();
     else stopCapture();
   },
   { immediate: true },
@@ -161,10 +166,12 @@ watch(
 onMounted(() => {
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
+  document.addEventListener("visibilitychange", onVisChange);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", resizeCanvas);
+  document.removeEventListener("visibilitychange", onVisChange);
   stopCapture();
   prev.fill(0);
   curr.fill(0);

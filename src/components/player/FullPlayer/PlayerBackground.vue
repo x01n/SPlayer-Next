@@ -59,10 +59,14 @@ const bgPlaying = computed(() => {
 /** 按歌曲配置的视频背景 */
 const trackVideoBg = ref<TrackVideoBgItem | null>(null);
 
+/** track.video 的本地刷新 URL，避免通过 setTrack 触发全局副作用 */
+const refreshedTrackVideoUrl = ref<string | null>(null);
+
 /** 当歌曲切换时，异步加载按歌曲配置的视频背景 */
 watch(
   () => media.track?.id,
   async (trackId) => {
+    refreshedTrackVideoUrl.value = null;
     if (trackId) {
       const result = await getTrackVideoBg(trackId);
       // 丢弃过期的异步结果，避免歌曲快速切换时的竞态
@@ -107,6 +111,10 @@ const effectiveBgType = computed(() => {
 });
 
 const videoRef = ref<HTMLVideoElement | null>(null);
+const videoLoaded = ref(false);
+const pageVisible = ref(!document.hidden);
+const reduceMotion = ref(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 /** 视频加载失败标记，失败时回退到模糊背景 */
 const videoLoadError = ref(false);
@@ -115,32 +123,29 @@ const videoLoadError = ref(false);
 const videoRetryCount = ref(0);
 
 /** 处理视频加载错误，Bilibili 来源 URL 过期时尝试重新解析 */
-const onVideoError = async () => {
-  const isBiliTrackVideoBg = trackVideoBg.value?.source === "bilibili";
-  const isBiliTrackVideo = media.track?.video?.source === "bilibili";
+const onVideoError = async (event: Event) => {
+  videoLoaded.value = false;
+  const failedUrl = (event.currentTarget as HTMLVideoElement | null)?.currentSrc || videoSrc.value;
+  const failedTrackVideoBg =
+    trackVideoBg.value?.source === "bilibili" && trackVideoBg.value.videoUrl === failedUrl;
+  const failedTrackVideo =
+    media.track?.video?.source === "bilibili" && media.track.video.url === failedUrl;
 
-  if ((isBiliTrackVideoBg || isBiliTrackVideo) && videoRetryCount.value < 2) {
+  if ((failedTrackVideoBg || failedTrackVideo) && videoRetryCount.value < 2) {
     videoRetryCount.value++;
     console.warn("[PlayerBackground] 视频背景 URL 可能已过期，尝试重新解析...");
 
     let refreshed = false;
-    if (isBiliTrackVideoBg && media.track?.id) {
+    if (failedTrackVideoBg && media.track?.id) {
       const result = await refreshTrackVideoBg(media.track.id);
       if (result) {
         trackVideoBg.value = result;
         refreshed = true;
       }
-    }
-
-    if (!refreshed && isBiliTrackVideo && media.track?.video?.bvid && media.track?.video?.cid) {
+    } else if (failedTrackVideo && media.track?.video?.bvid && media.track.video.cid) {
       try {
         const newUrl = await getVideoUrl(media.track.video.bvid, media.track.video.cid);
-        if (media.track) {
-          media.setTrack(
-            { ...media.track, video: { ...media.track.video, url: newUrl } },
-            media.detail,
-          );
-        }
+        refreshedTrackVideoUrl.value = newUrl;
         refreshed = true;
       } catch (err) {
         console.warn("[PlayerBackground] 重新解析视频 URL 失败:", err);
@@ -162,7 +167,7 @@ const configuredVideoSrc = computed(() => {
     return settings.player.playerBgCustomVideo || "";
   }
   if (bgType.value === "video") {
-    return trackVideoBg.value?.videoUrl || media.track?.video?.url || "";
+    return trackVideoBg.value?.videoUrl || refreshedTrackVideoUrl.value || media.track?.video?.url || "";
   }
   return "";
 });
@@ -173,82 +178,59 @@ const videoKey = computed(() => configuredVideoSrc.value);
 /** 当前视频源地址 */
 const videoSrc = computed(() => configuredVideoSrc.value);
 
-/** 判断视频源是否为跨域地址，需要添加 crossorigin 属性 */
-const isVideoCrossOrigin = computed(() => {
-  const src = videoSrc.value;
-  if (!src) return false;
-  if (src.startsWith("blob:") || src.startsWith("data:")) return false;
-  return src.startsWith("http://") || src.startsWith("https://");
-});
-
 // 视频源切换时重置错误标记和重试次数
 watch(
   () => configuredVideoSrc.value,
   () => {
+    videoLoaded.value = false;
     videoLoadError.value = false;
     videoRetryCount.value = 0;
   },
 );
 
-// 同步视频播放状态与音频
-watch(
-  () => status.isPlaying,
-  (playing) => {
-    if (
-      (effectiveBgType.value !== "video" && effectiveBgType.value !== "customVideo") ||
-      !videoRef.value
-    )
-      return;
-    if (playing) {
-      videoRef.value.play().catch(() => {});
-    } else {
-      videoRef.value.pause();
-    }
-  },
-);
+const syncVideoPlayback = () => {
+  const video = videoRef.value;
+  if (!video) return;
 
-// 切换到 video / customVideo 模式时，根据当前播放状态立即同步
-watch(
-  () => effectiveBgType.value,
-  (type) => {
-    if (type !== "video" && type !== "customVideo") return;
-    nextTick(() => {
-      if (!videoRef.value) return;
-      if (status.isPlaying) {
-        videoRef.value.play().catch(() => {});
-      } else {
-        videoRef.value.pause();
-      }
-    });
-  },
-);
-
-// 当 bgReady 变为 true 时（如展开播放器），同步视频播放状态
-watch(
-  () => bgReady.value,
-  (ready) => {
-    if (!ready || (effectiveBgType.value !== "video" && effectiveBgType.value !== "customVideo"))
-      return;
-    nextTick(() => {
-      if (!videoRef.value) return;
-      if (status.isPlaying) {
-        videoRef.value.play().catch(() => {});
-      } else {
-        videoRef.value.pause();
-      }
-    });
-  },
-);
-
-// video 元素重建（key 变化）后同步播放状态
-watch(videoRef, (el) => {
-  if (!el || (effectiveBgType.value !== "video" && effectiveBgType.value !== "customVideo")) return;
-  if (status.isPlaying) {
-    el.play().catch(() => {});
+  const active =
+    bgReady.value &&
+    status.isExpanded &&
+    status.isPlaying &&
+    pageVisible.value &&
+    !reduceMotion.value &&
+    (effectiveBgType.value === "video" || effectiveBgType.value === "customVideo");
+  if (active) {
+    void video.play().catch(() => {});
   } else {
-    el.pause();
+    video.pause();
   }
+};
+
+const syncPageVisibility = () => {
+  pageVisible.value = !document.hidden;
+};
+
+const syncReducedMotion = (event: MediaQueryListEvent) => {
+  reduceMotion.value = event.matches;
+};
+
+onMounted(() => {
+  document.addEventListener("visibilitychange", syncPageVisibility);
+  reducedMotionQuery.addEventListener("change", syncReducedMotion);
 });
+
+watch(
+  [
+    () => status.isPlaying,
+    () => status.isExpanded,
+    () => effectiveBgType.value,
+    () => bgReady.value,
+    pageVisible,
+    reduceMotion,
+    videoRef,
+  ],
+  () => nextTick(syncVideoPlayback),
+);
 
 // 封面颜色（纯色模式）
 const coverColor = computed(() => {
@@ -310,6 +292,9 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  document.removeEventListener("visibilitychange", syncPageVisibility);
+  reducedMotionQuery.removeEventListener("change", syncReducedMotion);
+  videoRef.value?.pause();
   clearTimeout(bgReadyTimer);
   switchToken++;
   if (preloadImg) {
@@ -336,17 +321,23 @@ onBeforeUnmount(() => {
       class="absolute inset-0 overflow-hidden -z-1 bg-video-wrap"
       aria-hidden="true"
     >
+      <img
+        :src="media.track?.cover || DEFAULT_COVER"
+        class="bg-video-poster"
+        decoding="async"
+        alt=""
+      />
       <video
         ref="videoRef"
         :key="videoKey"
         :src="videoSrc"
-        :crossorigin="isVideoCrossOrigin ? 'anonymous' : undefined"
         muted
         loop
         playsinline
         disablePictureInPicture
         preload="metadata"
-        class="bg-video"
+        :class="['bg-video', { loaded: videoLoaded }]"
+        @canplay="videoLoaded = true"
         @error="onVideoError"
       />
     </div>
@@ -477,10 +468,25 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+.bg-video-wrap .bg-video-poster,
 .bg-video-wrap .bg-video {
   position: absolute;
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.bg-video-wrap .bg-video-poster {
+  transform: scale(1.2);
+  filter: blur(24px) saturate(1.1);
+}
+
+.bg-video-wrap .bg-video {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.bg-video-wrap .bg-video.loaded {
+  opacity: 1;
 }
 </style>

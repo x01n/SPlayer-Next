@@ -167,6 +167,7 @@ export const defaultSystemConfig: SystemConfig = {
   listenTogether: {
     enabled: false,
     authKey: "",
+    serverUrl: "",
     defaultRoomName: "一起听房间",
     syncInterval: 8000,
     voteTimeout: 5000,

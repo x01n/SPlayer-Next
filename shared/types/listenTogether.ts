@@ -54,6 +54,8 @@ export interface ListenTogetherRoom {
   currentTrack: Track | null;
   /** 当前播放位置（毫秒） */
   position: number;
+  /** 播放位置更新时间戳 */
+  positionUpdatedAt: number;
   /** 创建时间戳 */
   createdAt: number;
   /** 当前主控成员ID（切歌方） */
@@ -204,8 +206,10 @@ export interface ListenTogetherActionProposal {
 export interface ListenTogetherSettings {
   /** 总开关 */
   enabled: boolean;
-  /** 鉴权密钥（房主设置） */
+  /** 服务器级鉴权密钥 */
   authKey: string;
+  /** 对外公布的服务地址，用于生成邀请链接 */
+  serverUrl: string;
   /** 默认房间名称 */
   defaultRoomName: string;
   /** 同步间隔（毫秒） */
@@ -296,6 +300,8 @@ export interface ListenTogetherJoinRequest {
   nickname: string;
   /** 网易云用户ID（可选，用于聊天验证） */
   neteaseUserId?: number;
+  /** 服务器级鉴权密钥 */
+  authKey: string;
   /** 房间密钥 */
   roomKey: string;
   /** 客户端发送时间戳（用于一次性时间同步） */

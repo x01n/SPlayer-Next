@@ -318,6 +318,8 @@ const api = {
     qrCheck: (key: string) => ipcRenderer.invoke("bilibili:qrCheck", key),
     pwdLogin: (username: string, password: string) =>
       ipcRenderer.invoke("bilibili:pwdLogin", username, password),
+    proxy: (path: string, query: string) =>
+      ipcRenderer.invoke("bilibili:proxy", path, query),
   },
   cloud: {
     pickSongs: () => ipcRenderer.invoke("cloud:pickSongs"),

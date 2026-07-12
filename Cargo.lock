@@ -305,6 +305,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ureq",
+ "url",
  "walkdir",
 ]
 

@@ -110,6 +110,12 @@ export interface FileRecord {
   size: number
 }
 
+/** 通过 Rust 发送 HTTP GET 请求，绕过渲染进程 CORS 限制 */
+export declare function httpGet(url: string, headers: Record<string, string>): Promise<JsHttpResponse>
+
+/** 通过 Rust 发送 HTTP POST 请求 */
+export declare function httpPost(url: string, headers: Record<string, string>, body: string): Promise<JsHttpResponse>
+
 /** 初始化原生日志系统。重复调用是无害的（HMR 重载时主进程可能多次注入） */
 export declare function initLogger(logDir: string, isDev: boolean): void
 
@@ -126,6 +132,13 @@ export interface JsExternalLyric {
   format: string
   /** 文件路径 */
   path: string
+}
+
+/** HTTP 代理响应 */
+export interface JsHttpResponse {
+  status: number
+  body: string
+  headers: Array<Array<string>>
 }
 
 /** 歌曲完整元信息，返回给 JS 侧（load 时一次性返回） */

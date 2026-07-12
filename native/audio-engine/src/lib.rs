@@ -6,7 +6,8 @@ mod decoder;
 mod equalizer;
 mod error;
 mod fft;
-mod http_source;
+mod http_proxy;
+pub(crate) mod http_source;
 mod logger;
 mod loudness;
 mod metadata;
@@ -255,7 +256,12 @@ impl AudioPlayer {
         use crate::shared::Shared;
 
         let auto_play = auto_play.unwrap_or(true);
-        info!(source = %source, auto_play, "加载音频源");
+        let source_kind = if http_source::is_network_source(&source) {
+            "network"
+        } else {
+            "local"
+        };
+        info!(source_kind, auto_play, "加载音频源");
 
         let (old_threads, token, cover_dir, normalization_enabled, output_sample_rate) = {
             let mut player = self.inner.lock();
@@ -986,4 +992,53 @@ pub async fn write_track_tags(
     })
     .await
     .map_err(|e| Error::from_reason(format!("标签写入任务失败: {e}")))
+}
+
+// ── HTTP 代理 ──
+
+/// HTTP 代理响应
+#[napi(object)]
+pub struct JsHttpResponse {
+    pub status: u32,
+    pub body: String,
+    pub headers: Vec<Vec<String>>,
+}
+
+fn proxy_to_js(r: http_proxy::ProxyResponse) -> JsHttpResponse {
+    JsHttpResponse {
+        status: r.status as u32,
+        body: r.body,
+        headers: r.headers.into_iter().map(|(k, v)| vec![k, v]).collect(),
+    }
+}
+
+/// 通过 Rust 发送 HTTP GET 请求，绕过渲染进程 CORS 限制
+#[napi]
+pub async fn http_get(
+    url: String,
+    headers: std::collections::HashMap<String, String>,
+) -> Result<JsHttpResponse> {
+    tokio::task::spawn_blocking(move || {
+        http_proxy::do_get(&url, &headers)
+            .map(proxy_to_js)
+            .map_err(|e| Error::from_reason(e))
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("HTTP GET 任务失败: {e}")))?
+}
+
+/// 通过 Rust 发送 HTTP POST 请求
+#[napi]
+pub async fn http_post(
+    url: String,
+    headers: std::collections::HashMap<String, String>,
+    body: String,
+) -> Result<JsHttpResponse> {
+    tokio::task::spawn_blocking(move || {
+        http_proxy::do_post(&url, &headers, &body)
+            .map(proxy_to_js)
+            .map_err(|e| Error::from_reason(e))
+    })
+    .await
+    .map_err(|e| Error::from_reason(format!("HTTP POST 任务失败: {e}")))?
 }

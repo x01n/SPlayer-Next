@@ -9,10 +9,12 @@ import type {
   ListenTogetherRoom,
   ListenTogetherServerMessage,
 } from "@shared/types/listenTogether";
+import { store } from "@main/store";
 import { serverLog } from "@main/utils/logger";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   isListenTogetherEnabled,
+  verifyAuthKey,
   getMemberByToken,
   updateMemberActive,
   registerWs,
@@ -30,6 +32,7 @@ import {
   voteOnProposal,
   getProposal,
   leaveRoom,
+  closeRoom,
   getLastBroadcastSnapshot,
   setLastBroadcastSnapshot,
   stopSyncTimer,
@@ -42,10 +45,132 @@ import {
 } from "./room";
 
 /** 处理一起听WS消息 */
+const isMessageRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0;
+
+const validateMessagePayload = (op: string, payload: unknown): boolean => {
+  if (op === "leave" || op === "chunkAck") return payload === undefined;
+  if (!isMessageRecord(payload)) return false;
+
+  switch (op) {
+    case "join":
+      return (
+        isNonEmptyString(payload.roomId) &&
+        isNonEmptyString(payload.roomKey) &&
+        isNonEmptyString(payload.authKey) &&
+        isNonEmptyString(payload.nickname) &&
+        (payload.neteaseUserId === undefined ||
+          (typeof payload.neteaseUserId === "number" && Number.isFinite(payload.neteaseUserId))) &&
+        (payload.clientTimestamp === undefined ||
+          (typeof payload.clientTimestamp === "number" && Number.isFinite(payload.clientTimestamp)))
+      );
+    case "sync":
+      return (
+        (payload.track === undefined || payload.track === null || isMessageRecord(payload.track)) &&
+        (payload.position === undefined ||
+          (typeof payload.position === "number" && Number.isFinite(payload.position))) &&
+        (payload.isPlaying === undefined || typeof payload.isPlaying === "boolean")
+      );
+    case "propose":
+      return (
+        typeof payload.type === "string" &&
+        ["seek", "play", "pause", "skip", "prev", "volume", "loadTrack"].includes(
+          payload.type,
+        )
+      );
+    case "vote":
+      return isNonEmptyString(payload.proposalId) && typeof payload.agree === "boolean";
+    case "chat": {
+      const replyTo = payload.replyTo;
+      return (
+        typeof payload.content === "string" &&
+        (replyTo === undefined ||
+          (isMessageRecord(replyTo) &&
+            isNonEmptyString(replyTo.messageId) &&
+            typeof replyTo.senderNickname === "string" &&
+            typeof replyTo.content === "string")) &&
+        (payload.mentions === undefined ||
+          (Array.isArray(payload.mentions) && payload.mentions.every(isNonEmptyString)))
+      );
+    }
+    case "heartbeat":
+      return typeof payload.timestamp === "number" && Number.isFinite(payload.timestamp);
+    case "kick":
+    case "blacklist":
+      return isNonEmptyString(payload.memberId);
+    case "recall":
+      return isNonEmptyString(payload.messageId);
+    case "queue": {
+      if (typeof payload.action !== "string") return false;
+      const data = payload.data;
+      switch (payload.action) {
+        case "add":
+          return isMessageRecord(data) && isMessageRecord(data.track);
+        case "remove":
+          return isMessageRecord(data) && Number.isInteger(data.index);
+        case "clear":
+          return data === undefined;
+        case "reorder":
+        case "move":
+          return isMessageRecord(data) && Number.isInteger(data.from) && Number.isInteger(data.to);
+        case "set":
+          return isMessageRecord(data) && Array.isArray(data.queue);
+        default:
+          return false;
+      }
+    }
+    case "searchShare":
+      return isNonEmptyString(payload.platform) && isNonEmptyString(payload.keyword);
+    case "reaction":
+      return isNonEmptyString(payload.emoji);
+    case "audioSource":
+      return (
+        isNonEmptyString(payload.trackId) &&
+        typeof payload.sourceType === "string" &&
+        ["local", "online", "streaming"].includes(payload.sourceType) &&
+        isNonEmptyString(payload.quality) &&
+        (payload.platform === undefined || typeof payload.platform === "string") &&
+        typeof payload.hasUrl === "boolean"
+      );
+    default:
+      return false;
+  }
+};
+
+const validateListenTogetherMessage = (
+  value: unknown,
+): value is ListenTogetherClientMessage => {
+  if (!isMessageRecord(value) || typeof value.op !== "string") return false;
+  if (value.signature !== undefined && typeof value.signature !== "string") return false;
+  return validateMessagePayload(value.op, value.payload);
+};
+
+const verifyMessageSignature = (ws: WSContext, msg: ListenTogetherClientMessage): boolean => {
+  const token = getTokenByWs(ws);
+  if (!token) return false;
+  const info = getMemberByToken(token);
+  if (!info || !msg.signature || !/^[0-9a-f]{16}$/i.test(msg.signature)) return false;
+
+  const expected = createHash("sha256")
+    .update(JSON.stringify(msg.payload) + info.room.cryptoKey)
+    .digest("hex")
+    .slice(0, 16);
+  return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(msg.signature, "hex"));
+};
+
 export const handleListenTogetherMessage = async (
   ws: WSContext,
   msg: ListenTogetherClientMessage,
 ): Promise<void> => {
+  if (!validateListenTogetherMessage(msg)) {
+    serverLog.warn("[ListenTogether] 收到格式无效的消息");
+    sendError(ws, "消息格式错误");
+    return;
+  }
+
   console.log(`[ListenTogether] 收到WS消息: op=${msg.op}`);
   serverLog.info(`[ListenTogether] 收到WS消息: op=${msg.op}`);
 
@@ -54,6 +179,14 @@ export const handleListenTogetherMessage = async (
     serverLog.info("[ListenTogether] 一起听功能未启用，拒绝处理消息");
     sendError(ws, "一起听功能未启用");
     return;
+  }
+
+  if (msg.op !== "join" && msg.op !== "leave" && msg.op !== "chunkAck") {
+    if (!verifyMessageSignature(ws, msg)) {
+      serverLog.warn(`[ListenTogether] 消息签名无效: op=${msg.op}`);
+      sendError(ws, "消息签名无效");
+      return;
+    }
   }
 
   switch (msg.op) {
@@ -140,6 +273,7 @@ const handleJoin = async (ws: WSContext, msg: ListenTogetherClientMessage): Prom
   const payload = msg.payload as {
     roomId: string;
     roomKey: string;
+    authKey: string;
     nickname: string;
     neteaseUserId?: number;
     clientTimestamp?: number;
@@ -152,10 +286,15 @@ const handleJoin = async (ws: WSContext, msg: ListenTogetherClientMessage): Prom
     `[ListenTogether] 处理加入房间请求: roomId=${payload?.roomId}, nickname=${payload?.nickname}`,
   );
 
-  if (!payload?.roomId || !payload.roomKey || !payload.nickname) {
-    console.log("[ListenTogether] 加入房间失败: 缺少必要参数 roomId, roomKey 或 nickname");
-    serverLog.info("[ListenTogether] 加入房间失败: 缺少必要参数 roomId, roomKey 或 nickname");
-    sendError(ws, "缺少必要参数: roomId, roomKey, nickname");
+  if (!payload?.roomId || !payload.roomKey || !payload.authKey || !payload.nickname) {
+    serverLog.info("[ListenTogether] 加入房间失败: 缺少必要参数");
+    sendError(ws, "缺少必要参数: roomId, roomKey, authKey, nickname");
+    return;
+  }
+
+  if (!verifyAuthKey(payload.authKey)) {
+    serverLog.warn(`[ListenTogether] 加入房间失败: 服务器鉴权失败, roomId=${payload.roomId}`);
+    sendError(ws, "服务器鉴权失败");
     return;
   }
 
@@ -170,16 +309,12 @@ const handleJoin = async (ws: WSContext, msg: ListenTogetherClientMessage): Prom
     return;
   }
 
-  console.log(
-    `[ListenTogether] 加入房间成功: roomId=${result.room.id}, token=${result.token}, 当前成员数=${result.room.members.length}`,
-  );
   serverLog.info(
-    `[ListenTogether] 加入房间成功: roomId=${result.room.id}, token=${result.token}, 当前成员数=${result.room.members.length}`,
+    `[ListenTogether] 加入房间成功: roomId=${result.room.id}, 当前成员数=${result.room.members.length}`,
   );
 
   registerWs(ws, result.token);
-  console.log(`[ListenTogether] WebSocket注册完成: token=${result.token}`);
-  serverLog.info(`[ListenTogether] WebSocket注册完成: token=${result.token}`);
+  serverLog.info(`[ListenTogether] WebSocket注册完成: roomId=${result.room.id}`);
 
   // 发送加入成功响应（包含加密密钥、聊天历史、成员ID和时间同步戳）
   const joinedMsg: ListenTogetherServerMessage = {
@@ -195,8 +330,7 @@ const handleJoin = async (ws: WSContext, msg: ListenTogetherClientMessage): Prom
     },
   };
   ws.send(JSON.stringify(joinedMsg));
-  console.log(`[ListenTogether] 已发送加入成功响应: token=${result.token}`);
-  serverLog.info(`[ListenTogether] 已发送加入成功响应: token=${result.token}`);
+  serverLog.info(`[ListenTogether] 已发送加入成功响应: roomId=${result.room.id}`);
 
   const memberInfo = getMemberByToken(result.token);
   const isHostRejoin = memberInfo?.member.id === result.room.hostId;
@@ -280,8 +414,8 @@ const handleLeave = (ws: WSContext): void => {
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 成员信息不存在，直接注销WS: token=${token}`);
-    serverLog.info(`[ListenTogether] 成员信息不存在，直接注销WS: token=${token}`);
+    console.log(`[ListenTogether] 成员信息不存在，直接注销WS: `);
+    serverLog.info(`[ListenTogether] 成员信息不存在，直接注销WS: `);
     unregisterWs(ws);
     return;
   }
@@ -299,18 +433,16 @@ const handleLeave = (ws: WSContext): void => {
   wsTokenMap.delete(ws);
   leaveRoom(token);
   console.log(
-    `[ListenTogether] 成员已离开房间: token=${token}, wasHost=${wasHost}, 剩余成员数=${room.members.length}`,
+    `[ListenTogether] 成员已离开房间: , wasHost=${wasHost}, 剩余成员数=${room.members.length}`,
   );
   serverLog.info(
-    `[ListenTogether] 成员已离开房间: token=${token}, wasHost=${wasHost}, 剩余成员数=${room.members.length}`,
+    `[ListenTogether] 成员已离开房间: , wasHost=${wasHost}, 剩余成员数=${room.members.length}`,
   );
 
-  // 房主离开，停止同步定时器并保留房间等待重连
   if (wasHost) {
-    stopSyncTimer(room.id);
-    broadcastRoomUpdate(room);
-    console.log(`[ListenTogether] 房主主动离开，等待房主重连: roomId=${room.id}`);
-    serverLog.info(`[ListenTogether] 房主主动离开，等待房主重连: roomId=${room.id}`);
+    closeRoom(room.id);
+    console.log(`[ListenTogether] 房主主动离开，关闭房间: roomId=${room.id}`);
+    serverLog.info(`[ListenTogether] 房主主动离开，关闭房间: roomId=${room.id}`);
   }
 };
 
@@ -329,8 +461,8 @@ const handleSync = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 播放同步失败: 成员信息不存在, token=${token}`);
-    serverLog.info(`[ListenTogether] 播放同步失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 播放同步失败: 成员信息不存在`);
+    serverLog.info(`[ListenTogether] 播放同步失败: 成员信息不存在`);
     sendError(ws, "成员信息不存在");
     return;
   }
@@ -423,8 +555,8 @@ const handlePropose = (ws: WSContext, msg: ListenTogetherClientMessage): void =>
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 提案失败: 成员信息不存在, token=${token}`);
-    serverLog.info(`[ListenTogether] 提案失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 提案失败: 成员信息不存在`);
+    serverLog.info(`[ListenTogether] 提案失败: 成员信息不存在`);
     sendError(ws, "成员信息不存在");
     return;
   }
@@ -490,7 +622,11 @@ const handlePropose = (ws: WSContext, msg: ListenTogetherClientMessage): void =>
 
       const executedMsg: ListenTogetherServerMessage = {
         kind: "executed",
-        data: { proposalId: proposal.id, result: true, payload: proposal.payload },
+        data: {
+          proposalId: proposal.id,
+          result: true,
+          payload: { type: proposal.type, data: proposal.payload },
+        },
       };
       broadcastToRoom(room.id, executedMsg);
       console.log(`[ListenTogether] 广播提案执行结果: proposalId=${proposal.id}, result=true`);
@@ -513,7 +649,11 @@ const handlePropose = (ws: WSContext, msg: ListenTogetherClientMessage): void =>
 
       const executedMsg: ListenTogetherServerMessage = {
         kind: "executed",
-        data: { proposalId: proposal.id, result: true },
+        data: {
+          proposalId: proposal.id,
+          result: true,
+          payload: { type: proposal.type, data: proposal.payload },
+        },
       };
       broadcastToRoom(room.id, executedMsg);
       console.log(
@@ -546,8 +686,8 @@ const handleVote = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 投票失败: 成员信息不存在, token=${token}`);
-    serverLog.info(`[ListenTogether] 投票失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 投票失败: 成员信息不存在`);
+    serverLog.info(`[ListenTogether] 投票失败: 成员信息不存在`);
     sendError(ws, "成员信息不存在");
     return;
   }
@@ -569,7 +709,12 @@ const handleVote = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
     `[ListenTogether] 成员投票: proposalId=${payload.proposalId}, memberId=${info.member.id}, agree=${payload.agree}`,
   );
 
-  const passed = voteOnProposal(payload.proposalId, info.member.id, payload.agree);
+  const passed = voteOnProposal(
+    info.room.id,
+    payload.proposalId,
+    info.member.id,
+    payload.agree,
+  );
   console.log(`[ListenTogether] 投票处理完成: proposalId=${payload.proposalId}, passed=${passed}`);
   serverLog.info(
     `[ListenTogether] 投票处理完成: proposalId=${payload.proposalId}, passed=${passed}`,
@@ -606,7 +751,11 @@ const handleVote = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
       const executedMsg: ListenTogetherServerMessage = {
         kind: "executed",
-        data: { proposalId: proposal.id, result: true, payload: proposal.payload },
+        data: {
+          proposalId: proposal.id,
+          result: true,
+          payload: { type: proposal.type, data: proposal.payload },
+        },
       };
       broadcastToRoom(info.room.id, executedMsg);
       console.log(
@@ -643,8 +792,8 @@ const handleChat = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 聊天消息失败: 成员信息不存在, token=${token}`);
-    serverLog.info(`[ListenTogether] 聊天消息失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 聊天消息失败: 成员信息不存在`);
+    serverLog.info(`[ListenTogether] 聊天消息失败: 成员信息不存在`);
     sendError(ws, "成员信息不存在");
     return;
   }
@@ -657,6 +806,17 @@ const handleChat = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
     replyTo?: { messageId: string; senderNickname: string; content: string };
     mentions?: string[];
   } | null;
+
+  if (
+    member.neteaseUserId === undefined &&
+    !store.get("listenTogether.allowAnonymousChat")
+  ) {
+    serverLog.warn(
+      `[ListenTogether] 匿名成员聊天被拒绝: roomId=${room.id}, memberId=${member.id}`,
+    );
+    sendError(ws, "当前房间不允许匿名成员聊天");
+    return;
+  }
 
   if (!payload?.content || payload.content.trim().length === 0) {
     console.log("[ListenTogether] 聊天消息失败: 消息内容为空");
@@ -731,8 +891,8 @@ const handleKick = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 踢出成员失败: 成员信息不存在, token=${token}`);
-    serverLog.info(`[ListenTogether] 踢出成员失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 踢出成员失败: 成员信息不存在`);
+    serverLog.info(`[ListenTogether] 踢出成员失败: 成员信息不存在`);
     sendError(ws, "成员信息不存在");
     return;
   }
@@ -793,8 +953,8 @@ const handleBlacklist = (ws: WSContext, msg: ListenTogetherClientMessage): void 
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 拉黑成员失败: 成员信息不存在, token=${token}`);
-    serverLog.info(`[ListenTogether] 拉黑成员失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 拉黑成员失败: 成员信息不存在`);
+    serverLog.info(`[ListenTogether] 拉黑成员失败: 成员信息不存在`);
     sendError(ws, "成员信息不存在");
     return;
   }
@@ -855,7 +1015,7 @@ const handleRecall = (ws: WSContext, msg: ListenTogetherClientMessage): void => 
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 撤回消息失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 撤回消息失败: 成员信息不存在`);
     serverLog.info("[ListenTogether] 撤回消息失败: 成员信息不存在");
     sendError(ws, "成员信息不存在");
     return;
@@ -966,10 +1126,10 @@ export const handleListenTogetherClose = (ws: WSContext): void => {
     wsTokenMap.delete(ws);
     const leaveResult = leaveRoom(token);
     console.log(
-      `[ListenTogether] WS关闭后成员已离开: token=${token}, 剩余成员数=${room.members.length}`,
+      `[ListenTogether] WS关闭后成员已离开，剩余成员数=${room.members.length}`,
     );
     serverLog.info(
-      `[ListenTogether] WS关闭后成员已离开: token=${token}, 剩余成员数=${room.members.length}`,
+      `[ListenTogether] WS关闭后成员已离开，剩余成员数=${room.members.length}`,
     );
 
     // 房主离开，停止同步定时器（房间保留但房主不再同步播放状态）
@@ -980,8 +1140,8 @@ export const handleListenTogetherClose = (ws: WSContext): void => {
       serverLog.info(`[ListenTogether] 房主WS断开，等待房主重连: roomId=${room.id}`);
     }
   } else {
-    console.log(`[ListenTogether] WS关闭处理: 成员信息不存在，直接注销WS: token=${token}`);
-    serverLog.info(`[ListenTogether] WS关闭处理: 成员信息不存在，直接注销WS: token=${token}`);
+    console.log(`[ListenTogether] WS关闭处理: 成员信息不存在，直接注销WS: `);
+    serverLog.info(`[ListenTogether] WS关闭处理: 成员信息不存在，直接注销WS: `);
     unregisterWs(ws);
   }
 };
@@ -1001,7 +1161,7 @@ const handleQueue = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 队列操作失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 队列操作失败: 成员信息不存在`);
     serverLog.info("[ListenTogether] 队列操作失败: 成员信息不存在");
     sendError(ws, "成员信息不存在");
     return;
@@ -1016,6 +1176,14 @@ const handleQueue = (ws: WSContext, msg: ListenTogetherClientMessage): void => {
     console.log("[ListenTogether] 队列操作失败: 缺少操作类型");
     serverLog.info("[ListenTogether] 队列操作失败: 缺少操作类型");
     sendError(ws, "缺少操作类型");
+    return;
+  }
+
+  if (payload.action !== "add" && member.id !== room.hostId) {
+    serverLog.warn(
+      `[ListenTogether] 队列操作被拒绝: roomId=${room.id}, memberId=${member.id}, action=${payload.action}`,
+    );
+    sendError(ws, "仅房主可以执行此队列操作");
     return;
   }
 
@@ -1058,7 +1226,7 @@ const handleSearchShare = (ws: WSContext, msg: ListenTogetherClientMessage): voi
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 搜索共享失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 搜索共享失败: 成员信息不存在`);
     serverLog.info("[ListenTogether] 搜索共享失败: 成员信息不存在");
     sendError(ws, "成员信息不存在");
     return;
@@ -1114,7 +1282,7 @@ const handleReaction = (ws: WSContext, msg: ListenTogetherClientMessage): void =
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 表情反应失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 表情反应失败: 成员信息不存在`);
     serverLog.info("[ListenTogether] 表情反应失败: 成员信息不存在");
     sendError(ws, "成员信息不存在");
     return;
@@ -1167,7 +1335,7 @@ const handleAudioSource = (ws: WSContext, msg: ListenTogetherClientMessage): voi
 
   const info = getMemberByToken(token);
   if (!info) {
-    console.log(`[ListenTogether] 音源报告失败: 成员信息不存在, token=${token}`);
+    console.log(`[ListenTogether] 音源报告失败: 成员信息不存在`);
     serverLog.info("[ListenTogether] 音源报告失败: 成员信息不存在");
     sendError(ws, "成员信息不存在");
     return;

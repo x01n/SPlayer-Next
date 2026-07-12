@@ -29,7 +29,6 @@ import {
   loginBilibiliByPassword,
   logoutBilibili as logoutBilibiliApi,
 } from "@/apis/login/bilibili";
-import { setBiliCookie } from "@/apis/bilibili";
 import {
   fetchLikelist,
   fetchSubcount,
@@ -734,7 +733,6 @@ export const useUserStore = defineStore(
           const latest = await fetchBilibiliLoginStatus();
           if (latest) {
             bilibiliProfile.value = latest;
-            if (cookie) setBiliCookie(cookie);
             return true;
           }
         }
@@ -786,7 +784,6 @@ export const useUserStore = defineStore(
         console.error("[user] bilibili logout failed");
       }
       bilibiliProfile.value = null;
-      setBiliCookie("");
     };
 
     return {

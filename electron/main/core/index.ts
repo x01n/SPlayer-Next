@@ -36,9 +36,10 @@ import {
   extractListenTogetherUrl,
   captureListenTogetherUrl,
 } from "@main/services/listenTogetherProtocol";
+import { getBilibiliCookie } from "@main/apis/bilibili/auth";
 
-// 为 Bilibili CDN 视频请求注入 Referer，避免 403
-const configureBilibiliVideoReferer = (): void => {
+/** 为 Bilibili 域请求注入 Referer 和 Cookie */
+const configureBilibiliRequestHeaders = (): void => {
   const bilibiliFilter = {
     urls: [
       "*://*.bilibili.com/*",
@@ -49,16 +50,24 @@ const configureBilibiliVideoReferer = (): void => {
       "*://*.szbdyd.com/*",
     ],
   };
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    bilibiliFilter,
-    (details: Electron.OnBeforeSendHeadersListenerDetails, callback: (response: Electron.BeforeSendResponse) => void) => {
-      const headers = details.requestHeaders;
-      if (!headers.Referer) {
+  const sessions = [session.defaultSession, session.fromPartition("persist:main")];
+  for (const currentSession of sessions) {
+    currentSession.webRequest.onBeforeSendHeaders(
+      bilibiliFilter,
+      (
+        details: Electron.OnBeforeSendHeadersListenerDetails,
+        callback: (response: Electron.BeforeSendResponse) => void,
+      ) => {
+        const headers = details.requestHeaders;
         headers.Referer = "https://www.bilibili.com";
-      }
-      callback({ requestHeaders: headers });
-    },
-  );
+        if (new URL(details.url).hostname === "api.bilibili.com" && !headers.Cookie) {
+          const cookie = getBilibiliCookie();
+          if (cookie) headers.Cookie = cookie;
+        }
+        callback({ requestHeaders: headers });
+      },
+    );
+  }
 };
 
 /**
@@ -114,11 +123,7 @@ export const initApp = (): void => {
     return;
   }
   app.on("second-instance", (_event, commandLine) => {
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
+    focusMainWindow();
     const url = extractOrpheusUrl(commandLine);
     if (url) captureOrpheusUrl(url);
     const ltUrl = extractListenTogetherUrl(commandLine);
@@ -156,8 +161,8 @@ export const initApp = (): void => {
     registerIpcHandlers();
     // 创建主窗口
     createMainWindow();
-    // 配置 Bilibili 视频 Referer 注入
-    configureBilibiliVideoReferer();
+    // 配置 Bilibili 请求头注入（Referer + Cookie）
+    configureBilibiliRequestHeaders();
     // 注册 orpheus 协议并处理冷启动唤起
     initOrpheusRegistration();
     const coldOrpheusUrl = extractOrpheusUrl(process.argv);

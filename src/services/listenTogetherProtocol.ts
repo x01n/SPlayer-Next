@@ -26,41 +26,31 @@ export const parseListenTogetherUrl = async (
 ): Promise<{ serverUrl: string; port: number; roomId: string; roomKey: string } | null> => {
   try {
     const urlObj = new URL(url);
-    const serverUrl = urlObj.hostname || "127.0.0.1";
+    const configuredServerUrl = urlObj.searchParams.get("serverUrl")?.trim();
+    const legacyHost = urlObj.hostname || "127.0.0.1";
+    const legacyPort = Number.parseInt(urlObj.port || "14558", 10);
+    const serverUrl = configuredServerUrl || legacyHost;
+    const parsedServerUrl = configuredServerUrl ? new URL(configuredServerUrl) : null;
+    const port = parsedServerUrl
+      ? Number.parseInt(
+          parsedServerUrl.port ||
+            (parsedServerUrl.protocol === "https:" || parsedServerUrl.protocol === "wss:"
+              ? "443"
+              : "80"),
+          10,
+        )
+      : legacyPort;
 
-    // 根据协议推断默认端口
-    let port: number;
-    if (urlObj.port) {
-      port = parseInt(urlObj.port, 10);
-    } else {
-      switch (urlObj.protocol) {
-        case "https:":
-        case "wss:":
-          port = 443;
-          break;
-        case "http:":
-        case "ws:":
-          port = 80;
-          break;
-        default:
-          port = 14558;
-      }
-    }
-
-    // 优先解析 /i/ 路径的 base62 邀请码
     const pathMatch = urlObj.pathname.match(/^\/i\/([^/]+)\/?$/);
     if (pathMatch) {
-      const inviteCode = pathMatch[1];
-      const decoded = await window.api.listenTogether.decodeInviteCode(inviteCode);
+      const decoded = await window.api.listenTogether.decodeInviteCode(pathMatch[1]);
       if (decoded) {
         return { serverUrl, port, roomId: decoded.roomId, roomKey: decoded.roomKey };
       }
     }
 
-    // 兼容旧格式 query 参数
     const roomId = urlObj.searchParams.get("roomId");
     const roomKey = urlObj.searchParams.get("roomKey");
-
     if (!roomId || !roomKey) return null;
 
     return { serverUrl, port, roomId, roomKey };

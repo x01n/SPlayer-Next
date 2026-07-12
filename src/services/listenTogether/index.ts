@@ -118,6 +118,7 @@ let connectionParams: {
   port: number;
   roomId: string;
   roomKey: string;
+  authKey: string;
   nickname: string;
   neteaseUserId?: number;
 } | null = null;
@@ -164,38 +165,22 @@ let lastMessageTime = 0;
 function inferProtocols(
   serverUrl: string,
   port: number,
-): { cleanUrl: string; protocols: string[] } {
-  let clean = serverUrl.trim().replace(/\/+$/, "");
+): { baseUrls: string[] } {
+  const raw = serverUrl.trim().replace(/\/+$/, "");
+  const explicitProtocol = raw.match(/^(wss?|https?):\/\//i);
 
-  // 已显式指定 ws:// 或 wss://
-  const wsMatch = clean.match(/^wss?:\/\/(.+)$/);
-  if (wsMatch) {
-    clean = wsMatch[1].replace(/\/.*$/, "").replace(/:\d+$/, "");
-    return { cleanUrl: clean, protocols: [serverUrl.startsWith("wss") ? "wss" : "ws"] };
+  if (explicitProtocol) {
+    const parsed = new URL(raw);
+    parsed.protocol = parsed.protocol === "https:" || parsed.protocol === "wss:" ? "wss:" : "ws:";
+    if (!parsed.port && port > 0) parsed.port = String(port);
+    return { baseUrls: [parsed.toString().replace(/\/+$/, "")] };
   }
 
-  // 已显式指定 http:// 或 https://（映射到 ws/wss）
-  const httpMatch = clean.match(/^https?:\/\/(.+)$/);
-  if (httpMatch) {
-    clean = httpMatch[1].replace(/\/.*$/, "").replace(/:\d+$/, "");
-    return { cleanUrl: clean, protocols: [serverUrl.startsWith("https") ? "wss" : "ws"] };
-  }
-
-  // 处理 splayer-listentogether:// 或其他自定义协议前缀
-  const customProtocolMatch = clean.match(/^[a-z][a-z0-9+.-]*:\/\/(.+)$/i);
-  if (customProtocolMatch) {
-    clean = customProtocolMatch[1].replace(/\/.*$/, "").replace(/:\d+$/, "");
-    // 自定义协议前缀不指定 ws/wss，由端口推断
-    const isSecure = port === 443 || port === 8443;
-    return { cleanUrl: clean, protocols: isSecure ? ["wss", "ws"] : ["ws", "wss"] };
-  }
-
-  // 未指定协议，移除可能的路径和端口
-  clean = clean.replace(/\/.*$/, "").replace(/:\d+$/, "");
-
-  // 未指定协议，按端口推断
+  const authority = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/+$/, "");
+  const withPort = /:\d+(?:\/|$)/.test(authority) ? authority : `${authority}:${port}`;
   const isSecure = port === 443 || port === 8443;
-  return { cleanUrl: clean, protocols: isSecure ? ["wss", "ws"] : ["ws", "wss"] };
+  const protocols = isSecure ? ["wss", "ws"] : ["ws", "wss"];
+  return { baseUrls: protocols.map((protocol) => `${protocol}://${withPort}`) };
 }
 
 /**
@@ -222,6 +207,7 @@ function scheduleReconnect(): void {
   if (isManualDisconnect || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.log("[ListenTogether] 重连次数已达上限，停止重试");
+      setState("error");
       safeForEach(listeners.error, "重连次数已达上限，停止重试");
     }
     return;
@@ -235,8 +221,8 @@ function scheduleReconnect(): void {
   reconnectTimer = setTimeout(() => {
     reconnectAttempts++;
     if (connectionParams) {
-      const { serverUrl, port, roomId, roomKey, nickname, neteaseUserId } = connectionParams;
-      void connect(serverUrl, port, roomId, roomKey, nickname, neteaseUserId);
+      const { serverUrl, port, roomId, roomKey, authKey, nickname, neteaseUserId } = connectionParams;
+      void connect(serverUrl, port, roomId, roomKey, authKey, nickname, neteaseUserId);
     }
   }, delay);
 }
@@ -320,6 +306,7 @@ export const connect = async (
   port: number,
   roomId: string,
   roomKey: string,
+  authKey: string,
   nickname: string,
   neteaseUserId?: number,
 ): Promise<boolean> => {
@@ -352,7 +339,7 @@ export const connect = async (
   }
 
   connectionCancelled = false;
-  connectionParams = { serverUrl, port, roomId, roomKey, nickname, neteaseUserId };
+  connectionParams = { serverUrl, port, roomId, roomKey, authKey, nickname, neteaseUserId };
   isManualDisconnect = false;
   clearReconnect();
   currentRoom = null;
@@ -364,6 +351,7 @@ export const connect = async (
     port,
     roomId,
     roomKey,
+    authKey,
     nickname,
     neteaseUserId,
   );
@@ -376,8 +364,7 @@ export const connect = async (
     console.log("[ListenTogether] 连接成功，重置重连计数");
     reconnectAttempts = 0;
   } else if (!isManualDisconnect) {
-    setState("error");
-    safeForEach(listeners.error, "连接失败");
+    setState("disconnected");
     scheduleReconnect();
   }
 
@@ -455,14 +442,15 @@ function establishConnection(
   port: number,
   roomId: string,
   roomKey: string,
+  authKey: string,
   nickname: string,
   neteaseUserId?: number,
 ): Promise<boolean> {
   return new Promise((resolve) => {
     resolveConnection = resolve;
 
-    const { cleanUrl, protocols } = inferProtocols(serverUrl, port);
-    currentServerUrl = cleanUrl;
+    const { baseUrls } = inferProtocols(serverUrl, port);
+    currentServerUrl = serverUrl;
     currentPort = port;
 
     let protocolIndex = 0;
@@ -490,14 +478,14 @@ function establishConnection(
         return;
       }
 
-      if (protocolIndex >= protocols.length) {
+      if (protocolIndex >= baseUrls.length) {
         console.log("[ListenTogether] 所有协议尝试失败");
         resolveOnce(false);
         return;
       }
 
-      const protocol = protocols[protocolIndex];
-      const wsUrl = `${protocol}://${cleanUrl}:${port}/ws`;
+      const baseUrl = baseUrls[protocolIndex];
+      const wsUrl = `${baseUrl}/listen-together/ws`;
       console.log(`[ListenTogether] 创建WebSocket: ${wsUrl}`);
 
       // 关闭旧 WebSocket 并解绑回调，避免协议降级时旧连接竞态
@@ -514,7 +502,7 @@ function establishConnection(
       ws = new WebSocket(wsUrl);
 
       timeout = setTimeout(() => {
-        console.log(`[ListenTogether] ${protocol.toUpperCase()} 连接超时`);
+        console.log(`[ListenTogether] ${baseUrl} 连接超时`);
         ws?.close();
       }, 10000);
 
@@ -527,7 +515,14 @@ function establishConnection(
         console.log(`[ListenTogether] WebSocket已打开，发送加入房间请求`);
         const joinMsg: ListenTogetherClientMessage = {
           op: "join",
-          payload: { roomId, roomKey, nickname, neteaseUserId, clientTimestamp: Date.now() },
+          payload: {
+            roomId,
+            roomKey,
+            authKey,
+            nickname,
+            neteaseUserId,
+            clientTimestamp: Date.now(),
+          },
         };
         ws?.send(JSON.stringify(joinMsg));
       };
@@ -587,7 +582,7 @@ function establishConnection(
       };
 
       ws.onerror = (err) => {
-        console.log(`[ListenTogether] ${protocol.toUpperCase()} 连接发生错误`, err);
+        console.log(`[ListenTogether] ${baseUrl} 连接发生错误`, err);
       };
 
       ws.onclose = () => {
@@ -627,7 +622,7 @@ const handleServerMessage = (msg: ListenTogetherServerMessage): void => {
         | undefined;
       if (data && data.token && data.room && data.room.id && data.memberId) {
         console.log(
-          `[ListenTogether] 加入房间成功: roomId=${data.room.id}, memberCount=${data.room.members.length}, token=${data.token.slice(0, 8)}..., memberId=${data.memberId.slice(0, 8)}...`,
+          `[ListenTogether] 加入房间成功: roomId=${data.room.id}, memberCount=${data.room.members.length}, memberId=${data.memberId.slice(0, 8)}...`,
         );
         memberToken = data.token;
         // 深拷贝房间数据，避免与服务端共享引用导致状态不同步
@@ -889,10 +884,10 @@ export const sendSync = async (
   track: Track | null,
   position: number,
   isPlaying: boolean,
-): Promise<void> => {
+): Promise<boolean> => {
   if (ws?.readyState !== WebSocket.OPEN) {
     console.log("[ListenTogether] 发送同步失败: WebSocket未打开");
-    return;
+    return false;
   }
   console.log(
     `[ListenTogether] 发送播放同步: trackId=${track?.id ?? "null"}, position=${position}, isPlaying=${isPlaying}`,
@@ -910,8 +905,10 @@ export const sendSync = async (
   try {
     ws.send(JSON.stringify(msg));
     console.log("[ListenTogether] 播放同步已发送");
+    return true;
   } catch (err) {
     console.log("[ListenTogether] 发送播放同步异常:", err);
+    return false;
   }
 };
 

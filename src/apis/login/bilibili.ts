@@ -3,7 +3,7 @@
  */
 
 import type { ApiCallResponse } from "@shared/types/apis";
-import { setBiliCookie } from "@/apis/bilibili";
+import { setBilibiliLoginState } from "@/apis/bilibili";
 
 /** Bilibili 二维码状态码 */
 export type BiliQrStatusCode = 0 | 86038 | 86090 | 86101;
@@ -29,7 +29,6 @@ export interface BiliPwdResult {
  */
 export const loginBilibili = async (cookie: string): Promise<boolean> => {
   const res: ApiCallResponse = await window.api.apis.setCookie("bilibili", cookie);
-  if (res.ok) setBiliCookie(cookie);
   return res.ok;
 };
 
@@ -51,8 +50,9 @@ export const fetchBilibiliLoginStatus = async (): Promise<{
   avatarUrl?: string;
 } | null> => {
   const res = await window.api.bilibili.getStatus();
-  if (!res.ok) return null;
-  return res.profile ?? null;
+  const profile = res.ok ? (res.profile ?? null) : null;
+  setBilibiliLoginState(profile !== null);
+  return profile;
 };
 
 /**
@@ -60,7 +60,7 @@ export const fetchBilibiliLoginStatus = async (): Promise<{
  */
 export const logoutBilibili = async (): Promise<void> => {
   await window.api.bilibili.logout();
-  setBiliCookie("");
+  setBilibiliLoginState(false);
 };
 
 /**

@@ -38,10 +38,14 @@ const probeNetworkQuality = async (): Promise<NetworkQuality> => {
   const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   const start = performance.now();
   try {
-    await fetch("https://api.bilibili.com/x/web-interface/search/type?search_type=video&page=1&page_size=1", {
-      method: "HEAD",
-      signal: controller.signal,
-    });
+    if (window.api?.bilibili?.proxy) {
+      await window.api.bilibili.proxy("/x/web-interface/search/type", "?search_type=video&page=1&pagesize=1");
+    } else {
+      await fetch("/api/bilibili/x/web-interface/search/type?search_type=video&page=1&pagesize=1", {
+        method: "GET",
+        signal: controller.signal,
+      });
+    }
     const rtt = performance.now() - start;
     return rtt > POOR_RTT_THRESHOLD_MS ? "poor" : "good";
   } catch (err) {

@@ -1,10 +1,62 @@
 /**
  * Bilibili Cookie 管理与登录
+ * 所有 HTTP 请求通过 Rust 原生模块代理，绕过 CORS 限制
  */
 
 import { store } from "@main/store";
 import { coreLog } from "@main/utils/logger";
 import { decryptSecureText, encryptSecureText, isSecureText } from "@main/utils/secureText";
+
+const getRustHttp = async () => (await import("@main/services/engine")).getEngine();
+
+const BILIBILI_ANON_COOKIE_TTL = 30 * 60 * 1000;
+let anonCookie = "";
+let anonCookieExpireAt = 0;
+
+const BILIBILI_PROXY_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/**
+ * 获取 Bilibili 匿名 Cookie（从首页 buvid3 提取，30 分钟缓存）
+ * @returns Cookie 字符串
+ */
+export const getBilibiliAnonymousCookie = async (): Promise<string> => {
+  if (anonCookie && Date.now() < anonCookieExpireAt) return anonCookie;
+  try {
+    const engine = await getRustHttp();
+    const res = await engine.httpGet("https://www.bilibili.com/", {
+      "User-Agent": BILIBILI_PROXY_UA,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      Referer: "https://www.bilibili.com/",
+    });
+    const setCookies = res.headers
+      .filter((h: string[]) => h[0].toLowerCase() === "set-cookie")
+      .map((h: string[]) => h[1].split(";")[0]?.trim())
+      .filter(Boolean);
+    if (setCookies.length > 0) {
+      const unique = [...new Set(setCookies)];
+      anonCookie = unique.join("; ");
+      anonCookieExpireAt = Date.now() + BILIBILI_ANON_COOKIE_TTL;
+    }
+  } catch {
+    /* 网络异常时沿用旧缓存 */
+  }
+  return anonCookie;
+};
+
+/**
+ * 获取 Bilibili 代理请求用的 Cookie
+ * 登录 Cookie 和匿名反爬 Cookie 合并，搜索等接口需要两者同时存在
+ * @returns Cookie 字符串
+ */
+export const getBilibiliProxyCookie = async (): Promise<string> => {
+  const parts: string[] = [];
+  const login = getBilibiliCookie();
+  if (login) parts.push(login);
+  const anon = await getBilibiliAnonymousCookie();
+  if (anon) parts.push(anon);
+  return parts.join("; ");
+};
 
 export const setBilibiliCookie = (cookie: string): void => {
   store.set("bilibili.cookie", cookie ? encryptSecureText(cookie) : "");
@@ -21,12 +73,6 @@ export const clearBilibiliCookie = (): void => {
   store.set("bilibili.cookie", "");
 };
 
-const splitSetCookieHeader = (cookieHeader: string): string[] =>
-  cookieHeader
-    .split(/,(?=\s*[^;,=\s]+=)/)
-    .map((cookie) => cookie.trim())
-    .filter(Boolean);
-
 const normalizeSetCookie = (setCookies: string[]): string | undefined => {
   const cookieParts = setCookies
     .map((cookie) => cookie.split(";")[0]?.trim())
@@ -34,20 +80,12 @@ const normalizeSetCookie = (setCookies: string[]): string | undefined => {
   return cookieParts.length > 0 ? cookieParts.join("; ") : undefined;
 };
 
-const extractCookieFromHeaders = (headers: Headers): string | undefined => {
-  let setCookies: string[] = [];
-  try {
-    setCookies = headers.getSetCookie();
-  } catch {
-    setCookies = [];
-  }
-
-  const cookie = normalizeSetCookie(setCookies);
-  if (cookie) return cookie;
-
-  const rawCookie = headers.get("set-cookie");
-  if (!rawCookie) return undefined;
-  return normalizeSetCookie(splitSetCookieHeader(rawCookie));
+/** 从 Rust HTTP 响应头中提取 Set-Cookie */
+const extractCookieFromRustHeaders = (headers: string[][]): string | undefined => {
+  const setCookies = headers
+    .filter(([name]) => name.toLowerCase() === "set-cookie")
+    .map(([, value]) => value);
+  return normalizeSetCookie(setCookies);
 };
 
 const extractCookieFromLoginUrl = (loginUrl?: string): string | undefined => {
@@ -67,14 +105,13 @@ export const fetchBilibiliLoginStatus = async (): Promise<{
 } | null> => {
   const cookie = getBilibiliCookie();
   if (!cookie) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch("https://api.bilibili.com/x/web-interface/nav", {
-      headers: { Cookie: cookie },
-      signal: controller.signal,
+    const engine = await getRustHttp();
+    const res = await engine.httpGet("https://api.bilibili.com/x/web-interface/nav", {
+      Cookie: cookie,
+      Referer: "https://www.bilibili.com/",
     });
-    const data = (await res.json()) as {
+    const data = JSON.parse(res.body) as {
       code?: number;
       data?: { isLogin?: boolean; mid?: number; uname?: string; face?: string };
     };
@@ -86,8 +123,6 @@ export const fetchBilibiliLoginStatus = async (): Promise<{
     };
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 };
 
@@ -107,17 +142,13 @@ export interface BiliQrPollResult {
  * @returns 二维码 key 和确认 URL
  */
 export const generateQrKey = async (): Promise<{ key: string; url: string }> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(
+    const engine = await getRustHttp();
+    const res = await engine.httpGet(
       "https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header",
-      {
-        headers: { Referer: "https://passport.bilibili.com" },
-        signal: controller.signal,
-      },
+      { Referer: "https://passport.bilibili.com" },
     );
-    const data = (await res.json()) as {
+    const data = JSON.parse(res.body) as {
       code?: number;
       data?: { qrcode_key?: string; url?: string };
     };
@@ -128,8 +159,6 @@ export const generateQrKey = async (): Promise<{ key: string; url: string }> => 
   } catch (err) {
     coreLog.error("[bilibili] generate qr key failed:", err);
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 };
 
@@ -139,14 +168,13 @@ export const generateQrKey = async (): Promise<{ key: string; url: string }> => 
  * @returns 扫码状态和 cookie（登录成功时）
  */
 export const pollQrStatus = async (key: string): Promise<BiliQrPollResult> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(
+    const engine = await getRustHttp();
+    const res = await engine.httpGet(
       `https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=${encodeURIComponent(key)}&source=main-fe-header`,
-      { signal: controller.signal },
+      { Referer: "https://passport.bilibili.com" },
     );
-    const data = (await res.json()) as {
+    const data = JSON.parse(res.body) as {
       code?: number;
       data?: { code?: number; message?: string; url?: string; refresh_token?: string };
       message?: string;
@@ -156,19 +184,15 @@ export const pollQrStatus = async (key: string): Promise<BiliQrPollResult> => {
 
     let cookie: string | undefined;
     if (code === 0) {
-      cookie = extractCookieFromHeaders(res.headers);
+      cookie = extractCookieFromRustHeaders(res.headers);
       cookie ??= extractCookieFromLoginUrl(data?.data?.url);
 
       if (!cookie && data?.data?.url) {
         try {
-          const confirmRes = await fetch(data.data.url, {
-            headers: {
-              Referer: "https://passport.bilibili.com",
-            },
-            redirect: "follow",
-            signal: AbortSignal.timeout(10000),
+          const confirmRes = await engine.httpGet(data.data.url, {
+            Referer: "https://passport.bilibili.com",
           });
-          cookie = extractCookieFromHeaders(confirmRes.headers);
+          cookie = extractCookieFromRustHeaders(confirmRes.headers);
         } catch (confirmErr) {
           coreLog.warn("[bilibili] extract cookie from confirm url failed:", confirmErr);
         }
@@ -179,8 +203,6 @@ export const pollQrStatus = async (key: string): Promise<BiliQrPollResult> => {
   } catch (err) {
     coreLog.error("[bilibili] poll qr status failed:", err);
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 };
 
@@ -204,11 +226,13 @@ export const loginWithPassword = async (
   password: string,
 ): Promise<BiliPwdResult> => {
   try {
-    // 1. 获取 RSA key
-    const keyRes = await fetch("https://passport.bilibili.com/x/passport-login/web/key", {
-      signal: AbortSignal.timeout(10000),
-    });
-    const keyData = (await keyRes.json()) as {
+    const engine = await getRustHttp();
+
+    const keyRes = await engine.httpGet(
+      "https://passport.bilibili.com/x/passport-login/web/key",
+      { Referer: "https://passport.bilibili.com" },
+    );
+    const keyData = JSON.parse(keyRes.body) as {
       code?: number;
       data?: { hash?: string; key?: string };
     };
@@ -218,36 +242,30 @@ export const loginWithPassword = async (
 
     const { hash, key } = keyData.data;
 
-    // 2. 使用 RSA 加密密码
     const { publicEncrypt } = await import("crypto");
     const encrypted = publicEncrypt(
-      {
-        key,
-        padding: 1, // RSA_PKCS1_PADDING
-      },
+      { key, padding: 1 },
       Buffer.from(hash + password),
     );
     const encodedPassword = encrypted.toString("base64");
 
-    // 3. 发送登录请求
     const formData = new URLSearchParams();
     formData.append("username", username);
     formData.append("password", encodedPassword);
     formData.append("keep", "1");
 
-    const loginRes = await fetch("https://passport.bilibili.com/x/passport-login/web/login", {
-      method: "POST",
-      headers: {
+    const loginRes = await engine.httpPost(
+      "https://passport.bilibili.com/x/passport-login/web/login",
+      {
         "Content-Type": "application/x-www-form-urlencoded",
         Referer: "https://www.bilibili.com",
       },
-      body: formData.toString(),
-      signal: AbortSignal.timeout(15000),
-    });
+      formData.toString(),
+    );
 
-    const cookie = extractCookieFromHeaders(loginRes.headers);
+    const cookie = extractCookieFromRustHeaders(loginRes.headers);
 
-    const loginData = (await loginRes.json()) as {
+    const loginData = JSON.parse(loginRes.body) as {
       code?: number;
       data?: { status?: number; message?: string; url?: string; token_info?: unknown };
       message?: string;
@@ -256,17 +274,12 @@ export const loginWithPassword = async (
     if (loginData?.code === 0) {
       return { success: true, cookie };
     }
-
-    // 需要验证码
     if (loginData?.code === -105) {
       return { success: false, needCaptcha: true, message: loginData?.message ?? "需要验证码" };
     }
-
-    // 需要验证（异地登录等）
     if (loginData?.data?.status === 2) {
       return { success: false, needVerify: true, message: loginData?.message ?? "需要验证" };
     }
-
     return { success: false, message: loginData?.message ?? "登录失败" };
   } catch (err) {
     coreLog.error("[bilibili] password login failed:", err);

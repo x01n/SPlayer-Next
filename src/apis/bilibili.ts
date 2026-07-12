@@ -4,40 +4,57 @@
  */
 
 const BASE = "https://api.bilibili.com";
+const WEB_PROXY_BASE = "/api/bilibili";
 
 /** 通用请求头 */
 const COMMON_HEADERS: Record<string, string> = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.0",
-  Referer: "https://www.bilibili.com",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Referer: "https://www.bilibili.com/",
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 };
 
-/** 当前会话 Cookie */
-let biliCookie = "";
+/** 当前是否已登录 Bilibili */
+let bilibiliLoggedIn = false;
 
 /**
- * 设置 Bilibili Cookie（SESSDATA 等）
- * @param cookie - Cookie 字符串
+ * 更新 Bilibili 登录状态
+ * @param loggedIn - 是否已登录
  */
-export const setBiliCookie = (cookie: string): void => {
-  biliCookie = cookie;
+export const setBilibiliLoginState = (loggedIn: boolean): void => {
+  bilibiliLoggedIn = loggedIn;
 };
-
-/**
- * 获取当前设置的 Bilibili Cookie
- * @returns Cookie 字符串
- */
-export const getBiliCookie = (): string => biliCookie;
 
 /**
  * 构建带 Cookie 的请求头
  * @param extra - 额外请求头
  * @returns 合并后的请求头
  */
+/** Electron 环境通过 IPC 代理 Bilibili API 请求 */
+const useIpcProxy = (): boolean => typeof window !== "undefined" && !!window.api?.bilibili?.proxy;
+
+const shouldUseWebProxy = (): boolean =>
+  typeof window !== "undefined" && !window.api && !useIpcProxy();
+
+const resolveRequestUrl = (url: string): string => {
+  if (!shouldUseWebProxy()) return url;
+  const parsed = new URL(url);
+  if (parsed.origin !== BASE) return url;
+  return `${WEB_PROXY_BASE}${parsed.pathname}${parsed.search}`;
+};
+
+const resolveRequestInit = (init?: RequestInit): RequestInit | undefined => {
+  if (!shouldUseWebProxy()) return init;
+  const headers = new Headers(init?.headers);
+  headers.delete("Cookie");
+  headers.delete("User-Agent");
+  headers.delete("Referer");
+  return { ...init, headers };
+};
+
 const buildHeaders = (extra?: Record<string, string>): Record<string, string> => {
   const headers = { ...COMMON_HEADERS };
-  const currentCookie = biliCookie;
-  if (currentCookie) headers.Cookie = currentCookie;
   if (extra) Object.assign(headers, extra);
   return headers;
 };
@@ -120,16 +137,35 @@ export const normalizeUrl = (url: string): string => {
 };
 
 /**
+ * 通过 IPC 代理请求 Bilibili API（Electron 环境）
+ * @param url - 原始 Bilibili API URL
+ * @returns 响应 JSON
+ */
+const fetchViaIpc = async (url: string): Promise<unknown> => {
+  const parsed = new URL(url);
+  const data = await window.api.bilibili.proxy(parsed.pathname, parsed.search);
+  return data;
+};
+
+/**
  * 带超时的 fetch 请求
  * @param url - 请求 URL
  * @param init - fetch 配置
  * @param timeoutMs - 超时毫秒数（默认 15000）
  * @returns fetch 响应
  */
-const fetchWithTimeout = (url: string, init?: RequestInit, timeoutMs = 15000): Promise<Response> => {
+const fetchWithTimeout = (
+  url: string,
+  init?: RequestInit,
+  timeoutMs = 15000,
+): Promise<Response> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  const requestUrl = resolveRequestUrl(url);
+  const requestInit = resolveRequestInit(init);
+  return fetch(requestUrl, { ...requestInit, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
 };
 
 /**
@@ -149,12 +185,11 @@ export const searchVideos = async (
   if (pageSize <= 0) pageSize = 20;
   // 注意：Bilibili 搜索 API 的参数名是 pagesize（无下划线）
   const url = `${BASE}/x/web-interface/search/type?keyword=${encodeURIComponent(keyword.trim())}&search_type=video&page=${page}&pagesize=${pageSize}`;
-  const res = await fetchWithTimeout(url, { headers: buildHeaders() });
-  const data = await parseJson(res);
+  const data = useIpcProxy()
+    ? await fetchViaIpc(url)
+    : await parseJson(await fetchWithTimeout(url, { headers: buildHeaders() }));
   if (typeof data !== "object" || data === null || (data as { code?: number }).code !== 0) {
-    throw new Error(
-      ((data as { message?: string })?.message) || "Bilibili 搜索失败",
-    );
+    throw new Error((data as { message?: string })?.message || "Bilibili 搜索失败");
   }
   const payload = (data as { data?: { result?: unknown; numResults?: number } }).data ?? {};
   const result = normalizeSearchResult(payload.result);
@@ -165,7 +200,11 @@ export const searchVideos = async (
       // Bilibili 搜索 API 字段名可能有差异，做兼容性映射
       const rawPic = item.pic ?? item.cover ?? item.img ?? item.image ?? "";
       const rawDuration = item.duration ?? item.length ?? item.time ?? 0;
-      const rawAuthor = item.author ?? (item.owner as Record<string, unknown>)?.name ?? (item.up as Record<string, unknown>)?.name ?? "";
+      const rawAuthor =
+        item.author ??
+        (item.owner as Record<string, unknown>)?.name ??
+        (item.up as Record<string, unknown>)?.name ??
+        "";
       return {
         bvid: String(item.bvid ?? ""),
         title: String(item.title ?? "").replace(/<[^>]+>/g, ""),
@@ -187,12 +226,11 @@ export const searchVideos = async (
 export const getVideoInfo = async (bvid: string): Promise<{ cid: number; duration: number }> => {
   if (!bvid?.trim()) throw new Error("BV 号为空");
   const url = `${BASE}/x/web-interface/view?bvid=${encodeURIComponent(bvid.trim())}`;
-  const res = await fetchWithTimeout(url, { headers: buildHeaders() });
-  const data = await parseJson(res);
+  const data = useIpcProxy()
+    ? await fetchViaIpc(url)
+    : await parseJson(await fetchWithTimeout(url, { headers: buildHeaders() }));
   if (typeof data !== "object" || data === null || (data as { code?: number }).code !== 0) {
-    throw new Error(
-      ((data as { message?: string })?.message) || "获取 Bilibili 视频信息失败",
-    );
+    throw new Error((data as { message?: string })?.message || "获取 Bilibili 视频信息失败");
   }
   const payload = (data as { data?: { cid?: number; duration?: number } }).data ?? {};
   const cid = payload.cid;
@@ -211,26 +249,27 @@ export const getAudioUrl = async (bvid: string, cid: number): Promise<string> =>
   if (!bvid?.trim()) throw new Error("BV 号为空");
   if (typeof cid !== "number" || cid <= 0) throw new Error("cid 无效");
   // 未登录时使用 qn=80（1080P），登录后才请求 qn=112（1080P+）
-  const qn = biliCookie ? 112 : 80;
+  const qn = bilibiliLoggedIn ? 112 : 80;
   const url = `${BASE}/x/player/playurl?bvid=${encodeURIComponent(bvid.trim())}&cid=${cid}&qn=${qn}&fnval=16&fourk=1`;
-  const res = await fetchWithTimeout(url, { headers: buildHeaders() });
-  const data = await parseJson(res);
+  const data = useIpcProxy()
+    ? await fetchViaIpc(url)
+    : await parseJson(await fetchWithTimeout(url, { headers: buildHeaders() }));
   if (typeof data !== "object" || data === null || (data as { code?: number }).code !== 0) {
-    throw new Error(
-      ((data as { message?: string })?.message) || "获取 Bilibili 音频流失败",
-    );
+    throw new Error((data as { message?: string })?.message || "获取 Bilibili 音频流失败");
   }
-  const payload = (data as { data?: { dash?: { audio?: unknown[] }; durl?: { url?: string }[] } }).data ?? {};
+  const payload =
+    (data as { data?: { dash?: { audio?: unknown[] }; durl?: { url?: string }[] } }).data ?? {};
   const dashAudio = Array.isArray(payload.dash?.audio) ? payload.dash!.audio : [];
   if (dashAudio.length > 0) {
     const sorted = [...dashAudio].sort((a, b) => {
-      const idA = typeof a === "object" && a !== null ? (a as { id?: number }).id ?? 0 : 0;
-      const idB = typeof b === "object" && b !== null ? (b as { id?: number }).id ?? 0 : 0;
+      const idA = typeof a === "object" && a !== null ? ((a as { id?: number }).id ?? 0) : 0;
+      const idB = typeof b === "object" && b !== null ? ((b as { id?: number }).id ?? 0) : 0;
       return idB - idA;
     });
     const first = sorted[0];
     if (first && typeof first === "object") {
-      const audioUrl = (first as { baseUrl?: string; url?: string }).baseUrl ?? (first as { url?: string }).url;
+      const audioUrl =
+        (first as { baseUrl?: string; url?: string }).baseUrl ?? (first as { url?: string }).url;
       if (audioUrl && typeof audioUrl === "string") return audioUrl;
     }
   }
@@ -250,13 +289,14 @@ export const getAudioUrl = async (bvid: string, cid: number): Promise<string> =>
 const pickDashStreamUrl = (streams: unknown[]): string | null => {
   if (streams.length === 0) return null;
   const sorted = [...streams].sort((a, b) => {
-    const idA = typeof a === "object" && a !== null ? (a as { id?: number }).id ?? 0 : 0;
-    const idB = typeof b === "object" && b !== null ? (b as { id?: number }).id ?? 0 : 0;
+    const idA = typeof a === "object" && a !== null ? ((a as { id?: number }).id ?? 0) : 0;
+    const idB = typeof b === "object" && b !== null ? ((b as { id?: number }).id ?? 0) : 0;
     return idB - idA;
   });
   const first = sorted[0];
   if (first && typeof first === "object") {
-    const streamUrl = (first as { baseUrl?: string; url?: string }).baseUrl ?? (first as { url?: string }).url;
+    const streamUrl =
+      (first as { baseUrl?: string; url?: string }).baseUrl ?? (first as { url?: string }).url;
     if (streamUrl && typeof streamUrl === "string") return streamUrl;
   }
   return null;
@@ -273,12 +313,13 @@ export const getVideoUrl = async (bvid: string, cid: number): Promise<string> =>
   if (!bvid?.trim()) throw new Error("BV 号为空");
   if (typeof cid !== "number" || cid <= 0) throw new Error("cid 无效");
   // 未登录时使用 qn=80（1080P），登录后才请求 qn=112（1080P+）
-  const qn = biliCookie ? 112 : 80;
+  const qn = bilibiliLoggedIn ? 112 : 80;
 
   // 先尝试 fnval=0 获取直接播放的 MP4/FLV 完整视频
   const directUrl = `${BASE}/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&qn=${qn}&fnval=0&fourk=1`;
-  const directRes = await fetchWithTimeout(directUrl, { headers: buildHeaders() });
-  const directData = await parseJson(directRes);
+  const directData = useIpcProxy()
+    ? await fetchViaIpc(directUrl)
+    : await parseJson(await fetchWithTimeout(directUrl, { headers: buildHeaders() }));
   if (
     typeof directData === "object" &&
     directData !== null &&
@@ -294,14 +335,18 @@ export const getVideoUrl = async (bvid: string, cid: number): Promise<string> =>
 
   // 回退到 fnval=16 的 DASH 格式
   const dashUrl = `${BASE}/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&qn=${qn}&fnval=16&fourk=1`;
-  const dashRes = await fetchWithTimeout(dashUrl, { headers: buildHeaders() });
-  const dashData = await parseJson(dashRes);
-  if (typeof dashData !== "object" || dashData === null || (dashData as { code?: number }).code !== 0) {
-    throw new Error(
-      ((dashData as { message?: string })?.message) || "获取 Bilibili 视频流失败",
-    );
+  const dashData = useIpcProxy()
+    ? await fetchViaIpc(dashUrl)
+    : await parseJson(await fetchWithTimeout(dashUrl, { headers: buildHeaders() }));
+  if (
+    typeof dashData !== "object" ||
+    dashData === null ||
+    (dashData as { code?: number }).code !== 0
+  ) {
+    throw new Error((dashData as { message?: string })?.message || "获取 Bilibili 视频流失败");
   }
-  const payload = (dashData as { data?: { dash?: { video?: unknown[] }; durl?: { url?: string }[] } }).data ?? {};
+  const payload =
+    (dashData as { data?: { dash?: { video?: unknown[] }; durl?: { url?: string }[] } }).data ?? {};
   const durl = Array.isArray(payload.durl) ? payload.durl : [];
   if (durl.length > 0) {
     const directUrl = durl[0].url;

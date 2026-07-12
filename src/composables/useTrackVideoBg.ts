@@ -22,38 +22,21 @@ export interface TrackVideoBgItem {
 /** 按歌曲配置的视频背景存储 */
 const db = localforage.createInstance({ name: "splayer", storeName: "trackVideoBg" });
 
-/** 内存缓存 */
-const cache = new Map<string, TrackVideoBgItem>();
-
-/** 是否已加载全部数据 */
-let loaded = false;
-
-/** 首次加载锁 */
-let loadAllPromise: Promise<void> | null = null;
-
 /**
- * 从持久化存储加载全部数据到内存缓存
+ * 校验持久化的视频背景配置
+ * @param value - IndexedDB 读取结果
+ * @returns 是否为有效的视频背景配置
  */
-const loadAll = async (): Promise<void> => {
-  if (loaded) return;
-  if (loadAllPromise) {
-    await loadAllPromise;
-    return;
-  }
-  const promise = (async () => {
-    cache.clear();
-    await db.iterate<TrackVideoBgItem, void>((value, key) => {
-      cache.set(key, value);
-    });
-    loaded = true;
-  })();
-  loadAllPromise = promise;
-  try {
-    await promise;
-  } catch (err) {
-    loadAllPromise = null;
-    throw err;
-  }
+const isTrackVideoBgItem = (value: unknown): value is TrackVideoBgItem => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.videoUrl === "string" &&
+    (item.source === "bilibili" || item.source === "custom") &&
+    typeof item.title === "string" &&
+    (item.bvid === undefined || typeof item.bvid === "string") &&
+    (item.cid === undefined || (typeof item.cid === "number" && Number.isFinite(item.cid)))
+  );
 };
 
 /**
@@ -62,8 +45,8 @@ const loadAll = async (): Promise<void> => {
  * @returns 视频背景配置，不存在时返回 null
  */
 export const getTrackVideoBg = async (trackId: string): Promise<TrackVideoBgItem | null> => {
-  await loadAll();
-  return cache.get(trackId) ?? null;
+  const value = await db.getItem<unknown>(trackId);
+  return isTrackVideoBgItem(value) ? value : null;
 };
 
 /**
@@ -71,10 +54,11 @@ export const getTrackVideoBg = async (trackId: string): Promise<TrackVideoBgItem
  * @param trackId - 歌曲全局 id
  * @param item - 视频背景信息
  */
-export const setTrackVideoBg = async (trackId: string, item: TrackVideoBgItem): Promise<void> => {
-  await loadAll();
+export const setTrackVideoBg = async (
+  trackId: string,
+  item: TrackVideoBgItem,
+): Promise<void> => {
   await db.setItem(trackId, item);
-  cache.set(trackId, item);
 };
 
 /**
@@ -82,9 +66,7 @@ export const setTrackVideoBg = async (trackId: string, item: TrackVideoBgItem): 
  * @param trackId - 歌曲全局 id
  */
 export const removeTrackVideoBg = async (trackId: string): Promise<void> => {
-  await loadAll();
   await db.removeItem(trackId);
-  cache.delete(trackId);
 };
 
 /**
@@ -92,8 +74,11 @@ export const removeTrackVideoBg = async (trackId: string): Promise<void> => {
  * @returns 只读 Map
  */
 export const getAllTrackVideoBgs = async (): Promise<ReadonlyMap<string, TrackVideoBgItem>> => {
-  await loadAll();
-  return new Map(cache);
+  const items = new Map<string, TrackVideoBgItem>();
+  await db.iterate<unknown, void>((value, key) => {
+    if (isTrackVideoBgItem(value)) items.set(key, value);
+  });
+  return items;
 };
 
 /**
@@ -102,18 +87,14 @@ export const getAllTrackVideoBgs = async (): Promise<ReadonlyMap<string, TrackVi
  * @returns 是否已配置
  */
 export const hasTrackVideoBg = async (trackId: string): Promise<boolean> => {
-  await loadAll();
-  return cache.has(trackId);
+  return (await getTrackVideoBg(trackId)) !== null;
 };
 
 /**
  * 清空全部按歌曲配置的视频背景
  */
 export const clearAllTrackVideoBgs = async (): Promise<void> => {
-  cache.clear();
-  await db.clear().catch(console.error);
-  loaded = false;
-  loadAllPromise = null;
+  await db.clear();
 };
 
 /**
@@ -176,14 +157,4 @@ export const useTrackVideoBg = () => {
     saveTrackVideoBg,
     deleteTrackVideoBg,
   };
-};
-
-/**
- * 同步获取指定歌曲的视频背景配置（仅限已加载缓存后）
- * 用于 computed 等同步场景，首次可能返回 null，随后异步加载
- * @param trackId - 歌曲全局 id
- * @returns 视频背景配置或 null
- */
-export const getTrackVideoBgSync = (trackId: string): TrackVideoBgItem | null => {
-  return cache.get(trackId) ?? null;
 };

@@ -132,10 +132,8 @@ const fetchTab = async (tab: TabKey, append: boolean): Promise<void> => {
     if (myAbort.signal.aborted) return;
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
-    if (!myAbort.signal.aborted) {
-      state.loading = false;
-      state.loadingMore = false;
-    }
+    state.loading = false;
+    state.loadingMore = false;
   }
 };
 

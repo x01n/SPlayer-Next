@@ -1,19 +1,34 @@
 # 外部 API（HTTP）
 
-SPlayer-Next 提供一个可选的本地 HTTP 接口，用于查询播放状态与控制播放。实时状态推送请使用 [WebSocket API](/socket)。
+SPlayer-Next 提供一个可选的 HTTP 接口，用于查询播放状态与控制播放。实时状态推送请使用 [WebSocket API](/socket)。
 
-::: warning 默认关闭
-外部 API **默认关闭**，需在 **设置 → 外部 API** 中开启。服务默认仅绑定 `127.0.0.1`（本机可访问），**不含任何鉴权**；如需局域网访问，请显式开启「允许局域网访问」，并仅在可信网络中使用。
+::: warning 默认关闭与鉴权
+外部 API 默认关闭，需在「设置 → 外部 API」中开启。服务默认只绑定 `127.0.0.1`；开启「允许局域网访问」后绑定 `0.0.0.0`。
+
+所有 `/api/*` 请求都必须携带 `X-API-Key`，值为设置中的 `externalApi.apiKey`。密钥为空时，网络服务启动会生成 32 字节 base64url 密钥并保存；空密钥不会关闭鉴权。
 :::
 
 ## 约定
 
 - **基础路径**：`http://127.0.0.1:<port>/api`
 - **默认端口**：`14558`（可在设置中修改）
-- **数据格式**：请求与响应均为 JSON（`Content-Type: application/json`）
+- **鉴权请求头**：`X-API-Key: <externalApi.apiKey>`
+- **数据格式**：除 Bilibili 代理外，请求与响应均为 JSON
 - **时间单位**：毫秒（ms）
 - **成功响应**：控制类接口返回 `{ "ok": true }`
-- **错误响应**：参数非法返回 `400`，响应体为 `{ "error": "<原因>" }`
+- **未启用**：返回 `403 { "error": "external API disabled" }`
+- **密钥错误或缺失**：返回 `403 { "error": "invalid API key" }`
+- **参数非法**：返回 `400 { "error": "<原因>" }`
+
+## Bilibili API 代理
+
+`GET /api/bilibili/:path` 也受外部 API 总开关和 `X-API-Key` 保护，只允许代理以下路径：
+
+- `/x/web-interface/search/type`
+- `/x/web-interface/view`
+- `/x/player/playurl`
+
+代理会透传上游状态码和响应正文，并设置 `content-type`；不允许的路径返回 `404`，上游请求失败返回 `502`。
 
 ## 端点总览
 
@@ -174,21 +189,26 @@ POST /api/volume
 ## 示例
 
 ```bash
+# API Key 由设置中的 externalApi.apiKey 提供
+API_KEY="<externalApi.apiKey>"
+
 # 查询播放状态
-curl http://127.0.0.1:14558/api/status
+curl http://127.0.0.1:14558/api/status -H "X-API-Key: $API_KEY"
 
 # 播放 / 暂停 / 下一曲
-curl -X POST http://127.0.0.1:14558/api/play
-curl -X POST http://127.0.0.1:14558/api/pause
-curl -X POST http://127.0.0.1:14558/api/next
+curl -X POST http://127.0.0.1:14558/api/play -H "X-API-Key: $API_KEY"
+curl -X POST http://127.0.0.1:14558/api/pause -H "X-API-Key: $API_KEY"
+curl -X POST http://127.0.0.1:14558/api/next -H "X-API-Key: $API_KEY"
 
 # 跳转到 1 分钟处
 curl -X POST http://127.0.0.1:14558/api/seek \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "positionMs": 60000 }'
 
 # 设置音量为 50%
 curl -X POST http://127.0.0.1:14558/api/volume \
+  -H "X-API-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "volume": 0.5 }'
 ```

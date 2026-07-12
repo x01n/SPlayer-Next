@@ -17,6 +17,12 @@ const listenTogetherSection: SettingSection = {
       defaultValue: "",
     },
     {
+      key: "listenTogetherServerUrl",
+      type: "text",
+      binding: { store: "settings", path: "system.listenTogether.serverUrl" },
+      defaultValue: "",
+    },
+    {
       key: "listenTogetherDefaultRoomName",
       type: "text",
       binding: { store: "settings", path: "system.listenTogether.defaultRoomName" },

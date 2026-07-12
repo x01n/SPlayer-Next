@@ -3,7 +3,7 @@
  * 负责房间的创建、销毁、成员管理和状态同步
  */
 
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import type { WSContext } from "hono/ws";
 import type { Track } from "@shared/types/player";
 import type {
@@ -27,6 +27,11 @@ const proposalRoomMap = new Map<string, string>();
 
 /** 房间存储：房间ID -> 房间 */
 const rooms = new Map<string, ListenTogetherRoom>();
+const MAX_ACTIVE_ROOMS = 64;
+const MAX_ROOM_MEMBERS = 50;
+const HOST_DISCONNECT_TTL = 30 * 60 * 1000;
+const EMPTY_ROOM_TTL = 120 * 60 * 1000;
+const roomExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** 成员令牌映射：token -> { roomId, memberId } */
 const tokenMap = new Map<string, { roomId: string; memberId: string }>();
 /** WS上下文映射：ws -> token */
@@ -38,6 +43,24 @@ const closeWsQuietly = (ws: WSContext): void => {
     ws.close();
   } catch {
     // 忽略已关闭连接
+  }
+};
+
+const closeMemberSockets = (roomId: string, memberId: string, exceptWs?: WSContext): void => {
+  const removedTokens: string[] = [];
+  for (const [token, info] of tokenMap.entries()) {
+    if (info.roomId === roomId && info.memberId === memberId) {
+      removedTokens.push(token);
+    }
+  }
+
+  for (const [ws, token] of wsTokenMap.entries()) {
+    if (ws === exceptWs || !removedTokens.includes(token)) continue;
+    closeWsQuietly(ws);
+  }
+
+  for (const token of removedTokens) {
+    tokenMap.delete(token);
   }
 };
 /** 聊天消息缓存：房间ID -> 消息列表（上限100条） */
@@ -90,6 +113,10 @@ export const createRoom = (
   roomName?: string,
 ): ListenTogetherRoom & { roomKey: string; hostToken: string } => {
   serverLog.info(`[ListenTogether] 开始创建房间，房主昵称: ${hostNickname}`);
+  if (rooms.size >= MAX_ACTIVE_ROOMS) {
+    throw new Error("活跃房间数量已达上限");
+  }
+
   const roomId = generateRoomId();
   const hostId = randomUUID();
   const roomKey = generateRoomKey();
@@ -114,6 +141,7 @@ export const createRoom = (
     state: "waiting",
     currentTrack: null,
     position: 0,
+    positionUpdatedAt: Date.now(),
     createdAt: Date.now(),
     controllerId: hostId,
     cryptoKey: generateCryptoKey(),
@@ -181,6 +209,12 @@ export const closeRoom = (roomId: string): boolean => {
     }
   }
 
+  const expiryTimer = roomExpiryTimers.get(roomId);
+  if (expiryTimer) {
+    clearTimeout(expiryTimer);
+    roomExpiryTimers.delete(roomId);
+  }
+
   rooms.delete(roomId);
   roomKeyMap.delete(roomId);
   hostTokenMap.delete(roomId);
@@ -191,6 +225,65 @@ export const closeRoom = (roomId: string): boolean => {
 
   serverLog.info(`[ListenTogether] 一起听房间已关闭: ${roomId}`);
   return true;
+};
+
+const scheduleRoomExpiry = (roomId: string): void => {
+  const activeTimer = roomExpiryTimers.get(roomId);
+  if (activeTimer) {
+    clearTimeout(activeTimer);
+    roomExpiryTimers.delete(roomId);
+  }
+
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const host = room.members.find((member) => member.id === room.hostId);
+  const deadlines: number[] = [];
+  if (host && !host.online && host.disconnectedAt !== undefined) {
+    deadlines.push(host.disconnectedAt + HOST_DISCONNECT_TTL);
+  }
+
+  if (!room.members.some((member) => member.online)) {
+    const lastDisconnectAt = Math.max(
+      ...room.members.map((member) => member.disconnectedAt ?? member.lastActiveAt),
+    );
+    deadlines.push(lastDisconnectAt + EMPTY_ROOM_TTL);
+  }
+
+  if (deadlines.length === 0) return;
+
+  const expiresAt = Math.min(...deadlines);
+  const timer = setTimeout(() => {
+    roomExpiryTimers.delete(roomId);
+    const currentRoom = rooms.get(roomId);
+    if (!currentRoom) return;
+
+    const now = Date.now();
+    const currentHost = currentRoom.members.find((member) => member.id === currentRoom.hostId);
+    const hostExpired =
+      currentHost !== undefined &&
+      !currentHost.online &&
+      currentHost.disconnectedAt !== undefined &&
+      now >= currentHost.disconnectedAt + HOST_DISCONNECT_TTL;
+    const hasOnlineMember = currentRoom.members.some((member) => member.online);
+    const lastDisconnectAt = Math.max(
+      ...currentRoom.members.map((member) => member.disconnectedAt ?? member.lastActiveAt),
+    );
+    const emptyRoomExpired =
+      !hasOnlineMember && now >= lastDisconnectAt + EMPTY_ROOM_TTL;
+
+    if (hostExpired || emptyRoomExpired) {
+      serverLog.info(
+        `[ListenTogether] 房间已到保留期限，关闭房间: ${roomId}, reason=${hostExpired ? "host-timeout" : "empty-timeout"}`,
+      );
+      closeRoom(roomId);
+      return;
+    }
+
+    scheduleRoomExpiry(roomId);
+  }, Math.max(0, expiresAt - Date.now()));
+
+  roomExpiryTimers.set(roomId, timer);
 };
 
 /**
@@ -232,6 +325,11 @@ export const joinRoom = (
     return { ok: false, error: "房间密钥错误" };
   }
 
+  if (!isHostRejoin && room.members.length >= MAX_ROOM_MEMBERS) {
+    serverLog.info(`[ListenTogether] 加入房间失败，房间人数已达上限: ${roomId}`);
+    return { ok: false, error: "房间人数已达上限" };
+  }
+
   // 房主重新加入：复用已有成员，生成新WS会话token
   if (isHostRejoin) {
     serverLog.info(`[ListenTogether] 房主尝试重新加入房间: ${roomId}, ${nickname}`);
@@ -241,15 +339,18 @@ export const joinRoom = (
       return { ok: false, error: "房主信息异常" };
     }
 
+    closeMemberSockets(roomId, room.hostId);
+
     // 生成新的WS会话token
     const wsToken = generateToken();
     tokenMap.set(wsToken, { roomId, memberId: room.hostId });
     hostMember.lastActiveAt = Date.now();
     hostMember.online = true;
     delete hostMember.disconnectedAt;
+    scheduleRoomExpiry(roomId);
 
     serverLog.info(
-      `[ListenTogether] 房主重新加入房间成功: ${roomId}, ${nickname}, token: ${wsToken.slice(0, 8)}...`,
+      `[ListenTogether] 房主重新加入房间成功: ${roomId}, ${nickname}`,
     );
     return { ok: true, token: wsToken, room, cryptoKey: room.cryptoKey, memberId: room.hostId };
   }
@@ -285,6 +386,7 @@ export const joinRoom = (
 
   room.members.push(member);
   tokenMap.set(token, { roomId, memberId });
+  scheduleRoomExpiry(roomId);
 
   serverLog.info(
     `[ListenTogether] 成员加入房间成功: ${roomId}, ${nickname}, 当前成员数: ${room.members.length}`,
@@ -297,17 +399,17 @@ export const joinRoom = (
 export const leaveRoom = (
   token: string,
 ): { roomId: string; memberId: string; wasHost: boolean } | null => {
-  serverLog.info(`[ListenTogether] 成员尝试离开房间，token: ${token.slice(0, 8)}...`);
+  serverLog.info(`[ListenTogether] 成员尝试离开房间`);
   const info = tokenMap.get(token);
   if (!info) {
-    serverLog.info(`[ListenTogether] 离开房间失败，token无效: ${token.slice(0, 8)}...`);
+    serverLog.info("[ListenTogether] 离开房间失败，会话令牌无效");
     return null;
   }
 
   const { roomId, memberId } = info;
   const room = rooms.get(roomId);
   if (!room) {
-    serverLog.info(`[ListenTogether] 离开房间时房间已不存在，清理token: ${roomId}`);
+    serverLog.info(`[ListenTogether] 离开房间时房间已不存在，清理会话: ${roomId}`);
     tokenMap.delete(token);
     return null;
   }
@@ -321,11 +423,18 @@ export const leaveRoom = (
       `[ListenTogether] 成员从房间移除: ${roomId}, ${memberId}, 剩余成员数: ${room.members.length}`,
     );
   } else {
-    const hostMember = room.members.find((m) => m.id === memberId);
-    if (hostMember) {
-      hostMember.online = false;
-      hostMember.disconnectedAt = Date.now();
-      hostMember.lastActiveAt = hostMember.disconnectedAt;
+    const hasOtherHostWs = Array.from(wsTokenMap.values()).some((activeToken) => {
+      if (activeToken === token) return false;
+      const activeInfo = tokenMap.get(activeToken);
+      return activeInfo?.roomId === roomId && activeInfo.memberId === memberId;
+    });
+    if (!hasOtherHostWs) {
+      const hostMember = room.members.find((m) => m.id === memberId);
+      if (hostMember) {
+        hostMember.online = false;
+        hostMember.disconnectedAt = Date.now();
+        hostMember.lastActiveAt = hostMember.disconnectedAt;
+      }
     }
     serverLog.info(`[ListenTogether] 房主WS会话断开，保留房主成员: ${roomId}`);
   }
@@ -349,18 +458,19 @@ export const leaveRoom = (
     );
   }
 
-  // 房主离开不自动关闭房间，需通过 closeRoom 显式关闭
   if (wasHost) {
+    scheduleRoomExpiry(roomId);
     serverLog.info(`[ListenTogether] 房主离开，保留房间: ${roomId}`);
     return { roomId, memberId, wasHost: true };
   }
 
-  // 如果房间空了，也关闭
   if (room.members.length === 0) {
     serverLog.info(`[ListenTogether] 房间成员为空，关闭房间: ${roomId}`);
     closeRoom(roomId);
     return { roomId, memberId, wasHost: false };
   }
+
+  scheduleRoomExpiry(roomId);
 
   // 广播成员离开给房间内其他人
   const memberLeftMsg = {
@@ -576,6 +686,12 @@ export const updateMemberActive = (token: string): void => {
   }
 };
 
+/** 获取按更新时间推进后的房间播放位置 */
+const getCurrentRoomPosition = (room: ListenTogetherRoom): number => {
+  if (room.state !== "playing") return room.position;
+  return room.position + Math.max(Date.now() - room.positionUpdatedAt, 0);
+};
+
 /** 设置当前播放状态 */
 export const setRoomPlayback = (
   roomId: string,
@@ -595,6 +711,7 @@ export const setRoomPlayback = (
 
   room.currentTrack = track;
   room.position = position;
+  room.positionUpdatedAt = Date.now();
   room.state = isPlaying ? "playing" : "paused";
   room.controllerId = controllerId;
   serverLog.info(
@@ -610,14 +727,16 @@ export const getRoomSyncState = (roomId: string): ListenTogetherSyncState | null
     return null;
   }
 
+  const position = getCurrentRoomPosition(room);
+  const sendTimestamp = Date.now();
   serverLog.info(
-    `[ListenTogether] 获取房间同步状态: ${roomId}, 状态: ${room.state}, 位置: ${room.position}`,
+    `[ListenTogether] 获取房间同步状态: ${roomId}, 状态: ${room.state}, 位置: ${position}`,
   );
   return {
     track: room.currentTrack,
-    position: room.position,
+    position,
     isPlaying: room.state === "playing",
-    sendTimestamp: Date.now(),
+    sendTimestamp,
     senderId: room.controllerId || room.hostId,
   };
 };
@@ -697,7 +816,12 @@ export const createProposal = (
 };
 
 /** 投票 */
-export const voteOnProposal = (proposalId: string, memberId: string, agree: boolean): boolean => {
+export const voteOnProposal = (
+  roomId: string,
+  proposalId: string,
+  memberId: string,
+  agree: boolean,
+): boolean => {
   serverLog.info(
     `[ListenTogether] 成员投票: 提案ID: ${proposalId}, 成员: ${memberId}, 同意: ${agree}`,
   );
@@ -715,11 +839,11 @@ export const voteOnProposal = (proposalId: string, memberId: string, agree: bool
     return false;
   }
 
-  proposal.votes[memberId] = agree;
-
-  const roomId = proposalRoomMap.get(proposalId);
-  if (!roomId) {
-    serverLog.info(`[ListenTogether] 投票失败，找不到提案所属房间: ${proposalId}`);
+  const proposalRoomId = proposalRoomMap.get(proposalId);
+  if (!proposalRoomId || proposalRoomId !== roomId) {
+    serverLog.warn(
+      `[ListenTogether] 投票失败，提案不属于当前房间: proposalId=${proposalId}, roomId=${roomId}`,
+    );
     return false;
   }
 
@@ -728,22 +852,36 @@ export const voteOnProposal = (proposalId: string, memberId: string, agree: bool
     serverLog.info(`[ListenTogether] 投票失败，提案所属房间不存在: ${proposalId}, ${roomId}`);
     return false;
   }
+  if (!room.members.some((member) => member.id === memberId && member.online)) {
+    serverLog.warn(
+      `[ListenTogether] 投票失败，成员不属于当前房间: proposalId=${proposalId}, memberId=${memberId}`,
+    );
+    return false;
+  }
 
-  const votedCount = Object.keys(proposal.votes).length;
+  proposal.votes[memberId] = agree;
+
+  const onlineMembers = room.members.filter((member) => member.online);
+  const onlineMemberIds = new Set(onlineMembers.map((member) => member.id));
+  const votedCount = Object.keys(proposal.votes).filter((voterId) =>
+    onlineMemberIds.has(voterId),
+  ).length;
   serverLog.info(
-    `[ListenTogether] 投票统计: 提案ID: ${proposalId}, 已投票: ${votedCount}/${room.members.length}`,
+    `[ListenTogether] 投票统计: 提案ID: ${proposalId}, 已投票: ${votedCount}/${onlineMembers.length}`,
   );
-  if (votedCount >= room.members.length) {
-    const agreeCount = Object.values(proposal.votes).filter((v) => v).length;
-    const passed = agreeCount > room.members.length / 2;
+  if (votedCount >= onlineMembers.length) {
+    const agreeCount = Object.entries(proposal.votes).filter(
+      ([voterId, vote]) => onlineMemberIds.has(voterId) && vote,
+    ).length;
+    const passed = agreeCount > onlineMembers.length / 2;
     if (passed) {
       proposal.executed = true;
       serverLog.info(
-        `[ListenTogether] 提案投票通过: ${proposalId}, 同意: ${agreeCount}/${room.members.length}`,
+        `[ListenTogether] 提案投票通过: ${proposalId}, 同意: ${agreeCount}/${onlineMembers.length}`,
       );
     } else {
       serverLog.info(
-        `[ListenTogether] 提案投票未通过: ${proposalId}, 同意: ${agreeCount}/${room.members.length}`,
+        `[ListenTogether] 提案投票未通过: ${proposalId}, 同意: ${agreeCount}/${onlineMembers.length}`,
       );
     }
     return passed;
@@ -815,7 +953,7 @@ export const setLastBroadcastSnapshot = (roomId: string, snapshot: string): void
 
 /** 注册WS连接 */
 export const registerWs = (ws: WSContext, token: string): void => {
-  serverLog.info(`[ListenTogether] 注册WebSocket连接: token: ${token.slice(0, 8)}...`);
+  serverLog.info(`[ListenTogether] 注册WebSocket连接`);
   wsTokenMap.set(ws, token);
   serverLog.info(`[ListenTogether] WebSocket连接已注册，当前连接数: ${wsTokenMap.size}`);
 };
@@ -825,7 +963,7 @@ export const unregisterWs = (ws: WSContext): void => {
   serverLog.info(`[ListenTogether] 注销WebSocket连接`);
   const token = wsTokenMap.get(ws);
   if (token) {
-    serverLog.info(`[ListenTogether] 注销WS时触发成员离开: token: ${token.slice(0, 8)}...`);
+    serverLog.info(`[ListenTogether] 注销WS时触发成员离开`);
     leaveRoom(token);
   } else {
     serverLog.info(`[ListenTogether] 注销WS时未找到对应token`);
@@ -904,7 +1042,11 @@ export const getRoom = (roomId: string): ListenTogetherRoom | undefined => {
 /** 验证鉴权密钥 */
 export const verifyAuthKey = (key: string): boolean => {
   const configured = store.get("listenTogether.authKey");
-  const valid = configured === key;
+  const configuredBuffer = Buffer.from(configured);
+  const providedBuffer = Buffer.from(key);
+  const valid =
+    configuredBuffer.length === providedBuffer.length &&
+    timingSafeEqual(configuredBuffer, providedBuffer);
   serverLog.info(`[ListenTogether] 验证鉴权密钥: ${valid ? "成功" : "失败"}`);
   return valid;
 };
@@ -964,7 +1106,8 @@ export const applyQueueAction = (
       serverLog.info(`[ListenTogether] 队列清空成功: roomId=${roomId}`);
       return room.queue;
     }
-    case "reorder": {
+    case "reorder":
+    case "move": {
       const from = (data as { from?: number })?.from ?? -1;
       const to = (data as { to?: number })?.to ?? -1;
       if (from < 0 || from >= room.queue.length || to < 0 || to >= room.queue.length) {

@@ -774,7 +774,12 @@ impl InnerPlayer {
 
     /// 加载音频源，auto_play 控制是否自动播放
     pub fn load(&mut self, source: &str, auto_play: bool) -> Result<AudioMetadata> {
-        debug!(source, auto_play, "开始加载音频源");
+        let source_kind = if crate::http_source::is_network_source(source) {
+            "network"
+        } else {
+            "local"
+        };
+        debug!(source_kind, auto_play, "开始加载音频源");
         self.stop_internal();
         self.fft.reset();
         // 切歌时清空滤波器历史样本，避免上一首尾音残留导致瞬态不稳定

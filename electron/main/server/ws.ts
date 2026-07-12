@@ -14,6 +14,7 @@ import type { WSContext } from "hono/ws";
 import { serverLog } from "@main/utils/logger";
 import { playerControl } from "@main/services/playerControl";
 import { addWsClient, removeWsClient, getWsClientCount } from "./broadcast";
+
 import { handleListenTogetherMessage, handleListenTogetherClose } from "./listenTogether";
 
 interface ClientMessage {
@@ -36,32 +37,6 @@ const dispatchCommand = async (ws: WSContext, msg: ClientMessage): Promise<void>
     return fail(ws, "?", "invalid message");
   }
   try {
-    // 一起听操作优先处理
-    const listenTogetherOps = new Set([
-      "join",
-      "leave",
-      "sync",
-      "propose",
-      "vote",
-      "chat",
-      "chunkAck",
-      "heartbeat",
-      "kick",
-      "blacklist",
-      "queue",
-      "searchShare",
-      "reaction",
-      "audioSource",
-      "recall",
-    ]);
-    if (listenTogetherOps.has(msg.op)) {
-      await handleListenTogetherMessage(
-        ws,
-        msg as Parameters<typeof handleListenTogetherMessage>[1],
-      );
-      return;
-    }
-
     switch (msg.op) {
       case "play":
         playerControl.play();
@@ -97,8 +72,8 @@ const dispatchCommand = async (ws: WSContext, msg: ClientMessage): Promise<void>
       default:
         return fail(ws, msg.op ?? "?", "unknown op");
     }
-  } catch (err) {
-    fail(ws, msg.op ?? "?", err instanceof Error ? err.message : String(err));
+  } catch {
+    fail(ws, msg.op ?? "?", "command failed");
   }
 };
 
@@ -118,11 +93,32 @@ export const wsHandlers = {
   },
   onClose(_evt: CloseEvent, ws: WSContext) {
     removeWsClient(ws);
-    handleListenTogetherClose(ws);
   },
   onError(_evt: Event, ws: WSContext) {
     serverLog.warn("WS 客户端错误");
     removeWsClient(ws);
+  },
+};
+
+export const listenTogetherWsHandlers = {
+  onOpen(_evt: Event, ws: WSContext) {
+    ws.send(JSON.stringify({ kind: "hello" }));
+  },
+  async onMessage(evt: MessageEvent, ws: WSContext) {
+    let msg: Parameters<typeof handleListenTogetherMessage>[1];
+    try {
+      msg = JSON.parse(typeof evt.data === "string" ? evt.data : evt.data.toString());
+    } catch {
+      ws.send(JSON.stringify({ kind: "error", data: { error: "invalid json" } }));
+      return;
+    }
+    await handleListenTogetherMessage(ws, msg);
+  },
+  onClose(_evt: CloseEvent, ws: WSContext) {
+    handleListenTogetherClose(ws);
+  },
+  onError(_evt: Event, ws: WSContext) {
+    serverLog.warn("一起听 WS 客户端错误");
     handleListenTogetherClose(ws);
   },
 };

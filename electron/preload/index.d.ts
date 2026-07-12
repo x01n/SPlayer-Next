@@ -132,6 +132,7 @@ declare global {
             }
           | { ok: false; error: string }
         >;
+        proxy: (path: string, query: string) => Promise<unknown>;
       };
       qqmusic: QQMusicApi;
       update: UpdateApi;

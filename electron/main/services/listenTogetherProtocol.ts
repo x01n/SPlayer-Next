@@ -45,27 +45,33 @@ export const parseListenTogetherUrl = (
 ): { serverUrl: string; port: number; roomId: string; roomKey: string } | null => {
   try {
     const urlObj = new URL(url);
-    const serverUrl = urlObj.hostname || "127.0.0.1";
-    const port = parseInt(urlObj.port || "14558", 10);
+    const configuredServerUrl = urlObj.searchParams.get("serverUrl")?.trim();
+    const legacyHost = urlObj.hostname || "127.0.0.1";
+    const legacyPort = Number.parseInt(urlObj.port || "14558", 10);
+    const serverUrl = configuredServerUrl || legacyHost;
+    const parsedServerUrl = configuredServerUrl ? new URL(configuredServerUrl) : null;
+    const port = parsedServerUrl
+      ? Number.parseInt(
+          parsedServerUrl.port ||
+            (parsedServerUrl.protocol === "https:" || parsedServerUrl.protocol === "wss:"
+              ? "443"
+              : "80"),
+          10,
+        )
+      : legacyPort;
 
-    // 优先解析 /i/ 路径的 base62 邀请码
-    const pathMatch = urlObj.pathname.match(/^\/i\/(.+)$/);
-    if (pathMatch) {
-      const inviteCode = pathMatch[1];
-      if (isValidBase62(inviteCode)) {
-        try {
-          const { roomId, roomKey } = decodeInviteCode(inviteCode);
-          return { serverUrl, port, roomId, roomKey };
-        } catch {
-          coreLog.warn(`[listentogether] 邀请码解码失败: ${inviteCode}`);
-        }
+    const pathMatch = urlObj.pathname.match(/^\/i\/([^/]+)\/?$/);
+    if (pathMatch && isValidBase62(pathMatch[1])) {
+      try {
+        const { roomId, roomKey } = decodeInviteCode(pathMatch[1]);
+        return { serverUrl, port, roomId, roomKey };
+      } catch {
+        coreLog.warn("[listentogether] 邀请码解码失败");
       }
     }
 
-    // 兼容旧格式 query 参数
     const roomId = urlObj.searchParams.get("roomId");
     const roomKey = urlObj.searchParams.get("roomKey");
-
     if (!roomId || !roomKey) return null;
 
     return { serverUrl, port, roomId, roomKey };

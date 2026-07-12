@@ -6,6 +6,7 @@ import { useListenTogetherStore } from "@/stores/listenTogether";
 import { useUserStore } from "@/stores/user";
 import { useSettingsStore } from "@/stores/settings";
 import { toast } from "@/composables/useToast";
+import { parseListenTogetherUrl } from "@/services/listenTogetherProtocol";
 
 import { useMediaStore } from "@/stores/media";
 import { searchSongs } from "@/apis/search";
@@ -33,6 +34,7 @@ const joinServerUrl = ref("127.0.0.1");
 const joinPort = ref(14558);
 const joinRoomId = ref("");
 const joinRoomKey = ref("");
+const joinAuthKey = ref(settings.system.listenTogether.authKey || "");
 const showManualJoin = ref(false);
 
 /** 创建房间 */
@@ -65,43 +67,6 @@ const handleCreateRoom = async (): Promise<void> => {
   }
 };
 
-/** 解析链接（支持base62和query参数格式） */
-const parseJoinLink = async (): Promise<{
-  serverUrl: string;
-  port: number;
-  roomId: string;
-  roomKey: string;
-} | null> => {
-  const link = joinLink.value.trim();
-  if (!link) return null;
-  try {
-    const url = new URL(link);
-    const serverUrl = url.hostname || "127.0.0.1";
-    const port = parseInt(url.port || "14558", 10);
-
-    // 优先尝试 base62 邀请码格式 /i/xxx
-    const pathMatch = url.pathname.match(/^\/i\/([^/]+)\/?$/);
-    if (pathMatch) {
-      const inviteCode = pathMatch[1];
-      const decoded = await window.api.listenTogether.decodeInviteCode(inviteCode);
-      if (decoded) {
-        return { serverUrl, port, roomId: decoded.roomId, roomKey: decoded.roomKey };
-      }
-    }
-
-    // 兼容旧格式 query 参数
-    const roomId = url.searchParams.get("roomId");
-    const roomKey = url.searchParams.get("roomKey");
-    if (roomId && roomKey) {
-      return { serverUrl, port, roomId, roomKey };
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-};
-
 /** 加入房间 */
 const handleJoinRoom = async (): Promise<void> => {
   if (!joinNickname.value.trim()) {
@@ -115,7 +80,7 @@ const handleJoinRoom = async (): Promise<void> => {
   let roomKey: string;
 
   if (joinLink.value.trim() && !showManualJoin.value) {
-    const parsed = await parseJoinLink();
+    const parsed = await parseListenTogetherUrl(joinLink.value.trim());
     if (!parsed) {
       toast.error(t("listenTogether.protocol.invalidLink"));
       return;
@@ -135,6 +100,11 @@ const handleJoinRoom = async (): Promise<void> => {
     roomKey = joinRoomKey.value.trim();
   }
 
+  if (!joinAuthKey.value.trim()) {
+    toast.error(t("listenTogether.panel.authKeyRequired"));
+    return;
+  }
+
   joining.value = true;
   try {
     const success = await store.joinRoom(
@@ -144,6 +114,7 @@ const handleJoinRoom = async (): Promise<void> => {
       roomKey,
       joinNickname.value.trim(),
       userStore.profile?.userId,
+      joinAuthKey.value.trim(),
     );
     if (success) {
       toast.success(t("listenTogether.protocol.joinSuccess"));
@@ -287,7 +258,7 @@ const handleSearchSong = async (): Promise<void> => {
   try {
     const result = await searchSongs(searchPlatform.value, keyword, 0, 10);
     if (myAbort.signal.aborted) return;
-    searchResults.value = result.items.slice(0, 10);
+    searchResults.value = result.items.slice(0, 10).map((item) => markRaw(item));
   } catch (err) {
     if (myAbort.signal.aborted) return;
     console.error("[ListenTogether] 搜索失败:", err);
@@ -406,6 +377,11 @@ onBeforeUnmount(() => {
               :placeholder="t('listenTogether.panel.roomKeyPlaceholder')"
             />
           </template>
+          <SInput
+            v-model="joinAuthKey"
+            type="password"
+            :placeholder="t('listenTogether.panel.authKeyPlaceholder')"
+          />
           <div class="text-center">
             <span
               class="text-xs text-primary cursor-pointer hover:underline"

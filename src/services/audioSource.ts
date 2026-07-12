@@ -5,10 +5,17 @@ import { useStreamingStore } from "@/stores/streaming";
 import { useSettingsStore } from "@/stores/settings";
 import { usePluginsStore } from "@/stores/plugins";
 import { resolveNeteaseUrl } from "@/apis/song/netease";
-import { searchVideos, getVideoInfo, getAudioUrl, getVideoUrl } from "@/apis/bilibili";
+import {
+  searchVideos,
+  getVideoInfo,
+  getAudioUrl,
+  getVideoUrl,
+  type BiliVideoItem,
+} from "@/apis/bilibili";
 import { getNetworkState } from "@/services/network";
 import { ErrorCode } from "@shared/types/errors";
 import { handleError } from "@/utils/errors";
+import { rankTagCandidates } from "@/utils/tagMatch";
 
 /** 在线平台 source → 插件 source key */
 const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
@@ -24,7 +31,11 @@ const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
  * @param source - 要检查的 source
  */
 const isOnlinePlatform = (source: TrackSource): source is Platform =>
-  source === "netease" || source === "qqmusic" || source === "kugou" || source === "spotify";
+  source === "netease" ||
+  source === "qqmusic" ||
+  source === "kugou" ||
+  source === "spotify" ||
+  source === "bilibili";
 
 /** 离线缓存回退时的音质档位优先级（从高到低） */
 const OFFLINE_QUALITY_PRIORITY: QualityLevel[] = ["hi-res", "lossless", "hq", "sq", "lq"];
@@ -80,7 +91,7 @@ const cacheKeyForTrack = (track: Track, songLevel: QualityLevel): string | null 
   if (track.source === "netease" && track.id) {
     return `o:netease:${track.id}:${songLevel}`;
   }
-  if (isOnlinePlatform(track.source) && track.id) {
+  if (isOnlinePlatform(track.source) && track.source !== "bilibili" && track.id) {
     return `o:${track.source}:${track.id}:`;
   }
   return null;
@@ -169,35 +180,74 @@ const resolveOnlineUrl = async (
     // 官方 API 异常回落插件
     console.warn("[audioSource] resolveNeteaseUrl failed:", err);
   }
-  return resolveByPlugin(track);
+  return resolveByPlugin(track, songLevel);
 };
 
 /**
- * 尝试 Bilibili fallback：当在线音源解析失败或音质较低时，搜索 Bilibili 视频提取音频
+ * 尝试从 Bilibili 获取音频，视频地址仅作为可选背景增强
  * @param track - 要解析的 track
+ * @param bvid - 可选的 Bilibili 视频号
  * @returns 解析到的音频源和视频源，失败返回 null
  */
-const tryBilibiliFallback = async (track: Track): Promise<ResolvedTrackSource | null> => {
+/**
+ * 使用项目现有歌曲匹配规则选择 Bilibili 搜索结果
+ * @param items - Bilibili 视频搜索结果
+ * @param track - 待匹配歌曲
+ * @returns 最匹配的视频结果，不存在时返回 undefined
+ */
+const selectBilibiliMatch = (
+  items: readonly BiliVideoItem[],
+  track: Track,
+): BiliVideoItem | undefined => {
+  const candidates: Track[] = items.map((item) => ({
+    id: item.bvid,
+    source: "bilibili",
+    title: item.title,
+    artists: [{ name: item.author }],
+    duration: item.duration * 1000,
+  }));
+  const matchedId = rankTagCandidates(candidates, {
+    title: track.title,
+    artist: track.artists.map((artist) => artist.name).join(""),
+    album: track.album?.name ?? "",
+    durationMs: track.duration,
+  })[0]?.track.id;
+  return items.find((item) => item.bvid === matchedId);
+};
+
+const tryBilibiliFallback = async (
+  track: Track,
+  bvid?: string,
+): Promise<ResolvedTrackSource | null> => {
   try {
     const keyword = `${track.title} ${track.artists.map((a) => a.name).join(" ")}`;
-    const resp = await searchVideos(keyword, 1, 5);
-    if (resp.items.length === 0) return null;
-    // 取第一个结果
-    const item = resp.items[0];
+    const item = bvid
+      ? { bvid }
+      : selectBilibiliMatch((await searchVideos(keyword, 1, 5)).items, track);
+    if (!item) return null;
+
     const { cid } = await getVideoInfo(item.bvid);
-    const [audioUrl, videoUrl] = await Promise.all([
-      getAudioUrl(item.bvid, cid),
-      getVideoUrl(item.bvid, cid),
-    ]);
+    const audioUrl = await getAudioUrl(item.bvid, cid);
+    let videoUrl: string | undefined;
+    try {
+      videoUrl = await getVideoUrl(item.bvid, cid);
+    } catch (err) {
+      console.warn("[audioSource] Bilibili 视频背景获取失败，保留音频结果:", err);
+    }
+
     return {
       source: audioUrl,
       fromCache: false,
-      videoUrl,
-      videoBvid: item.bvid,
-      videoCid: cid,
+      ...(videoUrl
+        ? {
+            videoUrl,
+            videoBvid: item.bvid,
+            videoCid: cid,
+          }
+        : {}),
     };
   } catch (err) {
-    console.warn("[audioSource] Bilibili fallback failed:", err);
+    console.warn("[audioSource] Bilibili 音频解析失败:", err);
     return null;
   }
 };
@@ -270,32 +320,40 @@ export const resolveTrackSource = async (track: Track): Promise<ResolvedTrackSou
       return null;
     }
   }
+  // Bilibili 直播放每次重新获取短期音频地址，不进入歌曲缓存。
+  if (track.source === "bilibili") {
+    return tryBilibiliFallback(track, track.id);
+  }
+
   // 在线源（netease / qqmusic / kugou / spotify）
   if (isOnlinePlatform(track.source)) {
     try {
-      // 如果启用了 Bili 高品质音频源，优先尝试 Bilibili fallback
-      const biliHqEnabled = settings.system.bilibili?.highQualityAudio === true;
-      if (biliHqEnabled) {
+      const biliFallbackEnabled = settings.system.bilibili?.highQualityAudio === true;
+      let resolved: OnlineResolveResult = { url: null, errorCode: ErrorCode.URL_RESOLVE_FAILED };
+
+      if (biliFallbackEnabled) {
         const fallback = await tryBilibiliFallback(track);
         if (fallback) return fallback;
       }
-      const resolved = await resolveOnlineUrl(track, songLevel);
+
+      resolved = await resolveOnlineUrl(track, songLevel);
       if (resolved.url === null) {
-        // URL 解析失败时尝试 Bilibili fallback
-        const fallback = await tryBilibiliFallback(track);
-        if (fallback) return fallback;
+        if (biliFallbackEnabled) {
+          const fallback = await tryBilibiliFallback(track);
+          if (fallback) return fallback;
+        }
         handleError(resolved.errorCode);
         return null;
       }
-      // 音质较低时尝试 Bilibili fallback 获取更高品质
-      if (songLevel === "lq" || songLevel === "hq") {
+
+      if (biliFallbackEnabled && (songLevel === "lq" || songLevel === "hq")) {
         const fallback = await tryBilibiliFallback(track);
         if (fallback) return fallback;
       }
+
       const url = resolved.url;
       const result: ResolvedTrackSource = { source: url, fromCache: false };
       if (cacheEnabled) {
-        // 缓存下载时重新解析最新 URL，避免使用已失效的 URL
         result.cacheRequest = async () => {
           try {
             const reResolved = await resolveOnlineUrl(track, songLevel);

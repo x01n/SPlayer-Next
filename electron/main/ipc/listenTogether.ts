@@ -45,6 +45,7 @@ const toRoomPayload = (room: ListenTogetherRoom): ListenTogetherRoom => ({
   state: room.state,
   currentTrack: room.currentTrack,
   position: room.position,
+  positionUpdatedAt: room.positionUpdatedAt,
   createdAt: room.createdAt,
   controllerId: room.controllerId,
   cryptoKey: room.cryptoKey,
@@ -87,6 +88,36 @@ const getLanAddress = (): string | null => {
 /**
  * 广播同步状态到房间内所有成员
  */
+const getPublishedServerUrl = (): string => {
+  const configured = String(store.get("listenTogether.serverUrl" as ConfigPath) ?? "").trim();
+  if (configured) {
+    const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(configured)
+      ? configured
+      : `http://${configured}`;
+    return withProtocol.replace(/\/+$/, "");
+  }
+
+  const port = store.get("externalApi.port") || 14558;
+  const allowLan = store.get("externalApi.allowLan") || false;
+  const host = allowLan ? (getLanAddress() ?? "127.0.0.1") : "127.0.0.1";
+  return `http://${host}:${port}`;
+};
+
+const buildInviteLink = (roomId: string, roomKey: string): string => {
+  const inviteCode = encodeInviteCode(roomId, roomKey);
+  const serverUrl = encodeURIComponent(getPublishedServerUrl());
+  return `splayer-listentogether://join/i/${inviteCode}?serverUrl=${serverUrl}`;
+};
+
+const buildRawInviteLink = (roomId: string, roomKey: string): string => {
+  const params = new URLSearchParams({
+    serverUrl: getPublishedServerUrl(),
+    roomId,
+    roomKey,
+  });
+  return `splayer-listentogether://join?${params.toString()}`;
+};
+
 const broadcastSync = (roomId: string): void => {
   serverLog.info(`[ListenTogether] 开始广播同步状态, roomId=${roomId}`);
   const syncState = getRoomSyncState(roomId);
@@ -117,8 +148,7 @@ export const registerListenTogetherIpc = (): void => {
         serverLog.info("[ListenTogether] 创建房间失败: 未设置鉴权密钥");
         return { ok: false, error: "请先设置鉴权密钥" };
       }
-      // 验证传入的鉴权密钥
-      if (authKey !== store.get("listenTogether.authKey" as ConfigPath)) {
+      if (!authKey || !verifyAuthKey(authKey)) {
         serverLog.info("[ListenTogether] 创建房间失败: 鉴权密钥不正确");
         return { ok: false, error: "鉴权密钥不正确" };
       }
@@ -170,7 +200,13 @@ export const registerListenTogetherIpc = (): void => {
           if (!localRoom) return;
           const room = getActiveRoom();
           if (!room) return;
-          setRoomPlayback(room.id, room.currentTrack, data.position, data.playing, localRoom.hostId);
+          setRoomPlayback(
+            room.id,
+            room.currentTrack,
+            data.position,
+            data.playing,
+            localRoom.hostId,
+          );
           if (data.playing !== lastPlayingState) {
             lastPlayingState = data.playing;
             serverLog.info(`[ListenTogether] 播放状态变化，立即广播: isPlaying=${data.playing}`);
@@ -252,14 +288,8 @@ export const registerListenTogetherIpc = (): void => {
       serverLog.info(`[ListenTogether] 获取分享链接失败: 房间不存在, roomId=${roomId}`);
       return null;
     }
-    const key = localRoom.roomKey;
-    const port = store.get("externalApi.port") || 14558;
-    const allowLan = store.get("externalApi.allowLan") || false;
-    const host = allowLan ? (getLanAddress() ?? "127.0.0.1") : "127.0.0.1";
-
-    const inviteCode = encodeInviteCode(roomId, key);
-    const link = `splayer-listentogether://${host}:${port}/i/${inviteCode}`;
-    serverLog.info(`[ListenTogether] 分享链接生成成功: ${link}`);
+    const link = buildInviteLink(roomId, localRoom.roomKey);
+    serverLog.info(`[ListenTogether] 分享链接生成成功, roomId=${roomId}`);
     return link;
   });
 
@@ -275,12 +305,8 @@ export const registerListenTogetherIpc = (): void => {
       serverLog.info(`[ListenTogether] 获取原始分享链接失败: 房间不存在, roomId=${roomId}`);
       return null;
     }
-    const key = localRoom.roomKey;
-    const port = store.get("externalApi.port") || 14558;
-    const allowLan = store.get("externalApi.allowLan") || false;
-    const host = allowLan ? (getLanAddress() ?? "127.0.0.1") : "127.0.0.1";
-    const link = `splayer-listentogether://${host}:${port}?roomId=${roomId}&roomKey=${key}`;
-    serverLog.info(`[ListenTogether] 原始分享链接生成成功: ${link}`);
+    const link = buildRawInviteLink(roomId, localRoom.roomKey);
+    serverLog.info(`[ListenTogether] 原始分享链接生成成功, roomId=${roomId}`);
     return link;
   });
 

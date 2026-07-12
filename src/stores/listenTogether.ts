@@ -135,9 +135,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       roomKey.value = result.roomKey || "";
       hostToken.value = result.hostToken || "";
       isHost.value = true;
-      console.log(
-        `[ListenTogether] 房间创建成功, roomId=${roomId.value}, roomKey=${roomKey.value}`,
-      );
+      console.log(`[ListenTogether] 房间创建成功, roomId=${roomId.value}`);
 
       const port = (await window.api.config.get("externalApi.port")) as number | undefined;
       const allowLan = (await window.api.config.get("externalApi.allowLan")) as boolean | undefined;
@@ -153,6 +151,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
         effectivePort,
         roomId.value,
         hostToken.value,
+        effectiveAuthKey,
         name,
         neteaseUserId,
       );
@@ -217,6 +216,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     key: string,
     name: string,
     neteaseUserId?: number,
+    serverAuthKey?: string,
   ): Promise<boolean> => {
     console.log(`[ListenTogether] 加入房间, url=${url}, port=${port}, roomId=${id}, name=${name}`);
     serverUrl.value = url;
@@ -227,7 +227,18 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     isHost.value = false;
     setupListeners();
 
-    const success = await lt.connect(url, port, id, key, name, neteaseUserId);
+    const configuredAuthKey = (await window.api.config.get(
+      "listenTogether.authKey",
+    )) as string;
+    const authKey = serverAuthKey?.trim() || configuredAuthKey;
+    if (!authKey) {
+      console.log("[ListenTogether] 加入房间失败: 未配置服务器鉴权密钥");
+      resetState();
+      lt.clearAllListeners();
+      return false;
+    }
+
+    const success = await lt.connect(url, port, id, key, authKey, name, neteaseUserId);
     if (success) {
       memberId.value = lt.getMemberId() ?? "";
       connectionState.value = lt.getConnectionState();
@@ -309,13 +320,16 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
    * @param position - 播放位置（毫秒）
    * @param isPlaying - 是否正在播放
    */
-  const syncPlayback = (track: Track | null, position: number, isPlaying: boolean): void => {
-    if (isHost.value) {
-      console.log(
-        `[ListenTogether] 发送播放同步, trackId=${track?.id ?? "null"}, position=${position}, isPlaying=${isPlaying}`,
-      );
-      lt.sendSync(track, position, isPlaying);
-    }
+  const syncPlayback = async (
+    track: Track | null,
+    position: number,
+    isPlaying: boolean,
+  ): Promise<boolean> => {
+    if (!isHost.value) return false;
+    console.log(
+      `[ListenTogether] 发送播放同步, trackId=${track?.id ?? "null"}, position=${position}, isPlaying=${isPlaying}`,
+    );
+    return await lt.sendSync(track, position, isPlaying);
   };
 
   /** 设置监听器 */
@@ -329,6 +343,11 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       if (state === "connected") {
         memberId.value = lt.getMemberId() ?? "";
         console.log(`[ListenTogether] 连接成功, memberId=${memberId.value}`);
+        if (isHost.value) {
+          const media = useMediaStore();
+          const status = useStatusStore();
+          void syncPlayback(media.track, status.position, status.isPlaying);
+        }
       }
     });
 
@@ -588,9 +607,9 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     const unwatchTrack = watch(
       () => media.track?.id,
       (newId, oldId) => {
-        if (newId && newId !== oldId) {
-          console.log(`[ListenTogether] 自动同步: 切歌 trackId=${newId}`);
-          syncPlayback(media.track, status.position, status.isPlaying);
+        if (newId !== oldId) {
+          console.log(`[ListenTogether] 自动同步: 切歌 trackId=${newId ?? "null"}`);
+          void syncPlayback(media.track, status.position, status.isPlaying);
         }
       },
     );
@@ -600,7 +619,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
       () => status.isPlaying,
       (isPlaying) => {
         console.log(`[ListenTogether] 自动同步: 播放状态变化 isPlaying=${isPlaying}`);
-        syncPlayback(media.track, status.position, isPlaying);
+        void syncPlayback(media.track, status.position, isPlaying);
       },
     );
 
@@ -615,9 +634,11 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
           console.log(
             `[ListenTogether] 自动同步: 位置变化 position=${position}, delta=${delta}, timeSinceLast=${timeSinceLast}`,
           );
-          lastSyncPosition = position;
-          lastSyncPositionTime = now;
-          syncPlayback(media.track, position, status.isPlaying);
+          void syncPlayback(media.track, position, status.isPlaying).then((sent) => {
+            if (!sent) return;
+            lastSyncPosition = position;
+            lastSyncPositionTime = now;
+          });
         }
       },
     );
@@ -641,8 +662,15 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     const myToken = ++syncToken;
     const media = useMediaStore();
 
+    if (!syncState.track) {
+      console.log("[ListenTogether] 同步清空当前歌曲");
+      await player.stop();
+      media.clear();
+      return;
+    }
+
     // 如果 track 存在且与当前播放不同，加载新歌曲
-    if (syncState.track && syncState.track.id !== media.track?.id) {
+    if (syncState.track.id !== media.track?.id) {
       console.log(`[ListenTogether] 同步加载新歌曲 trackId=${syncState.track.id}`);
       await player.loadTrack(syncState.track);
     }
@@ -669,7 +697,7 @@ export const useListenTogetherStore = defineStore("listenTogether", () => {
     const serverSendAtClientTime = syncState.sendTimestamp - offset;
     const oneWayLatency = Date.now() - serverSendAtClientTime;
     const compensatedLatency = Math.min(Math.max(oneWayLatency, 0), SYNC_MAX_LATENCY);
-    const targetPos = syncState.position + compensatedLatency;
+    const targetPos = syncState.position + (syncState.isPlaying ? compensatedLatency : 0);
     const currentPos = playback.getCurrentTime();
     const diff = currentPos - targetPos;
 

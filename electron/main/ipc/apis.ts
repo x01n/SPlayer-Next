@@ -28,6 +28,7 @@ import {
 } from "@main/apis/spotify/auth";
 import {
   setBilibiliCookie,
+  getBilibiliProxyCookie,
   clearBilibiliCookie,
   fetchBilibiliLoginStatus,
   generateQrKey,
@@ -307,6 +308,40 @@ export const registerApisIpc = (): void => {
       return { ok: true, ...result };
     } catch (err) {
       coreLog.warn("[bilibili] pwd login failed:", err);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  const BILIBILI_PROXY_PATHS = new Set([
+    "/x/web-interface/search/type",
+    "/x/web-interface/view",
+    "/x/player/playurl",
+    "/x/passport-login/web/qrcode/generate",
+    "/x/passport-login/web/qrcode/poll",
+  ]);
+  const BILIBILI_PROXY_HEADERS: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    Referer: "https://www.bilibili.com/",
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+  };
+  ipcMain.handle("bilibili:proxy", async (_evt, path: string, query: string) => {
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    if (!BILIBILI_PROXY_PATHS.has(normalizedPath)) {
+      return { ok: false, error: "path not allowed" };
+    }
+    try {
+      const engine = (await import("@main/services/engine")).getEngine();
+      const host = normalizedPath.startsWith("/x/passport-login")
+        ? "https://passport.bilibili.com"
+        : "https://api.bilibili.com";
+      const url = `${host}${normalizedPath}${query}`;
+      const cookie = await getBilibiliProxyCookie();
+      const headers = { ...BILIBILI_PROXY_HEADERS, ...(cookie ? { Cookie: cookie } : {}) };
+      const res = await engine.httpGet(url, headers);
+      return JSON.parse(res.body);
+    } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });

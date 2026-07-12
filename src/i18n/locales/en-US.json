@@ -2012,8 +2012,12 @@
       "description": "Enable Listen Together to create or join rooms"
     },
     "listenTogetherAuthKey": {
-      "label": "Auth Key",
-      "description": "Authentication key used when creating a room"
+      "label": "Server Auth Key",
+      "description": "Server-level key required to create and join rooms; generated automatically when empty"
+    },
+    "listenTogetherServerUrl": {
+      "label": "Public Server URL",
+      "description": "Public, tunnel, or reverse-proxy address used in invite links; uses the local listener when empty"
     },
     "listenTogetherDefaultRoomName": {
       "label": "Default Room Name",
@@ -2065,6 +2069,10 @@
     "bilibiliAccount": {
       "label": "Bilibili Account",
       "description": "Sign in to Bilibili"
+    },
+    "bilibiliHighQualityAudio": {
+      "label": "Prefer Bilibili Audio",
+      "description": "Try Bilibili when the original source fails or has low quality; disable to turn off fallback"
     },
     "kugouAccount": {
       "label": "Kugou Account",

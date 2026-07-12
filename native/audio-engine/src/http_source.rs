@@ -15,8 +15,18 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, Context, Result};
 use tracing::{debug, warn};
+use url::Url;
 
 const USER_AGENT: &str = "SPlayer-Next/1.0";
+const BILIBILI_REFERER: &str = "https://www.bilibili.com/";
+const BILIBILI_HOST_SUFFIXES: &[&str] = &[
+    "bilibili.com",
+    "bilivideo.com",
+    "bcdn.bilibili.com",
+    "hdslb.com",
+    "mcdn.bilibili.com",
+    "szbdyd.com",
+];
 const PROBE_TIMEOUT_SECS: u64 = 5;
 /// 重连阶段的 connect 超时：cancel flag 能打断 read 但打断不了 ureq 的 connect，
 /// 复用 10s 的 probe 超时会让网络抖动时的同步 stop() 被卡住最长 10s
@@ -134,6 +144,33 @@ fn build_agent(connect_timeout: Duration, config: &Config) -> ureq::Agent {
         .build()
 }
 
+fn host_matches_suffix(host: &str, suffix: &str) -> bool {
+    host == suffix
+        || host
+            .strip_suffix(suffix)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+fn requires_bilibili_referer(url: &str) -> bool {
+    Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_owned))
+        .is_some_and(|host| {
+            BILIBILI_HOST_SUFFIXES
+                .iter()
+                .any(|suffix| host_matches_suffix(&host, suffix))
+        })
+}
+
+fn build_get(agent: &ureq::Agent, url: &str) -> ureq::Request {
+    let request = agent.get(url);
+    if requires_bilibili_referer(url) {
+        request.set("Referer", BILIBILI_REFERER)
+    } else {
+        request
+    }
+}
+
 impl HttpRangeSource {
     pub fn new(url: impl Into<String>) -> Result<Self> {
         Self::new_with_config(url, Config::default())
@@ -144,8 +181,7 @@ impl HttpRangeSource {
         // 初始探测允许更长的 connect 超时
         let probe_agent = build_agent(config.probe_timeout, &config);
 
-        let resp = probe_agent
-            .get(&url)
+        let resp = build_get(&probe_agent, &url)
             .set("Range", "bytes=0-")
             .call()
             .with_context(|| format!("初始 GET 失败: {url}"))?;
@@ -210,7 +246,10 @@ impl HttpRangeSource {
         }
         let range_header = format!("bytes={}-", self.pos);
 
-        match self.agent.get(&self.url).set("Range", &range_header).call() {
+        match build_get(&self.agent, &self.url)
+            .set("Range", &range_header)
+            .call()
+        {
             Ok(resp) => {
                 let status = resp.status();
                 if self.pos > 0 && status == 200 {
@@ -405,6 +444,35 @@ mod tests {
 
     fn body_n(n: usize) -> Vec<u8> {
         (0..n).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn bilibili_referer_matches_known_host_boundaries() {
+        assert!(requires_bilibili_referer(
+            "https://upos-sz-estgcos.bilivideo.com/file.m4s"
+        ));
+        assert!(requires_bilibili_referer(
+            "https://i0.hdslb.com/bfs/archive/cover.jpg"
+        ));
+        assert!(!requires_bilibili_referer(
+            "https://evil-bilivideo.com/file.m4s"
+        ));
+        assert!(!requires_bilibili_referer(
+            "https://bilivideo.com.example.com/file.m4s"
+        ));
+        assert!(!requires_bilibili_referer("https://music.163.com/song.mp3"));
+    }
+
+    #[test]
+    fn bilibili_requests_set_only_referer() {
+        let agent = ureq::Agent::new();
+        let request = build_get(&agent, "https://UPOS-SZ-ESTGCOS.BILIVIDEO.COM/file.m4s");
+        assert_eq!(request.header("Referer"), Some(BILIBILI_REFERER));
+        assert_eq!(request.header("Cookie"), None);
+
+        let request = build_get(&agent, "https://music.163.com/song.mp3");
+        assert_eq!(request.header("Referer"), None);
+        assert_eq!(request.header("Cookie"), None);
     }
 
     #[test]

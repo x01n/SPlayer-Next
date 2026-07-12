@@ -1,19 +1,38 @@
 # WebSocket API
 
-WebSocket 接口在 [外部 API](/api) 的基础上提供**实时双向**通信：既能下发控制命令，也能订阅播放状态推送。
+WebSocket 接口在 [外部 API](/api) 的基础上提供实时双向通信：既能下发控制命令，也能订阅播放状态推送。
 
-::: warning 默认关闭
-WebSocket 需要在 **设置 → 外部 API** 中开启外部 API 后，**额外开启 WebSocket** 才会生效。安全约束与 HTTP 接口一致（默认仅本机、无鉴权）。
+::: warning 默认关闭与鉴权
+WebSocket 需要同时开启「外部 API」和「WebSocket」开关。连接 `/ws` 时仍受外部 API 的监听地址与 API Key 鉴权约束。
 :::
 
 ## 连接
 
 - **地址**：`ws://127.0.0.1:<port>/ws`
 - **默认端口**：`14558`（与 HTTP 接口共用）
+- **浏览器鉴权**：使用固定子协议 `splayer-auth-v1`，并将 API Key 以 Base64URL 编码后放入 `splayer-key.` 协议项
+- **非浏览器鉴权**：可使用 `X-API-Key` 请求头
+- **握手失败**：缺少或错误密钥返回 HTTP `403`
+- **入站消息上限**：`256 KiB`
+
+浏览器不能自定义 `X-API-Key`，请使用：
 
 ```javascript
-const ws = new WebSocket("ws://127.0.0.1:14558/ws");
+const apiKey = "<externalApi.apiKey>";
+const bytes = new TextEncoder().encode(apiKey);
+const encodedKey = btoa(String.fromCharCode(...bytes))
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=+$/, "");
+const ws = new WebSocket("ws://127.0.0.1:14558/ws", [
+  "splayer-auth-v1",
+  `splayer-key.${encodedKey}`,
+]);
 ```
+
+::: danger 不要回显密钥
+服务端只选择并回显固定协议 `splayer-auth-v1`，不会回显 `splayer-key.` 密钥协议项；也不要将密钥写入日志或分享链接。
+:::
 
 ## 服务器 → 客户端
 
@@ -49,7 +68,16 @@ const ws = new WebSocket("ws://127.0.0.1:14558/ws");
 ## 示例
 
 ```javascript
-const ws = new WebSocket("ws://127.0.0.1:14558/ws");
+const apiKey = "<externalApi.apiKey>";
+const bytes = new TextEncoder().encode(apiKey);
+const encodedKey = btoa(String.fromCharCode(...bytes))
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=+$/, "");
+const ws = new WebSocket("ws://127.0.0.1:14558/ws", [
+  "splayer-auth-v1",
+  `splayer-key.${encodedKey}`,
+]);
 
 ws.onopen = () => {
   // 暂停播放

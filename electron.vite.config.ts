@@ -1,5 +1,6 @@
 import { resolve } from "path";
 import { defineConfig } from "electron-vite";
+import type { Plugin, ViteDevServer } from "vite";
 import UnoCSS from "unocss/vite";
 import vue from "@vitejs/plugin-vue";
 import AutoImport from "unplugin-auto-import/vite";
@@ -9,6 +10,91 @@ import { FileSystemIconLoader } from "unplugin-icons/loaders";
 import RekaResolver from "reka-ui/resolver";
 import Components from "unplugin-vue-components/vite";
 import pkg from "./package.json" with { type: "json" };
+
+const BILIBILI_PROXY_TARGET = "https://api.bilibili.com";
+const BILIBILI_PROXY_PREFIX = "/api/bilibili";
+const BILIBILI_PROXY_PATHS = new Set([
+  "/x/web-interface/search/type",
+  "/x/web-interface/view",
+  "/x/player/playurl",
+]);
+const BILIBILI_PROXY_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Referer: "https://www.bilibili.com/",
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+};
+const BILIBILI_COOKIE_TTL = 30 * 60 * 1000;
+let bilibiliAnonymousCookie = "";
+let bilibiliAnonymousCookieExpireAt = 0;
+
+const parseBilibiliSetCookie = (cookies: string[]): string =>
+  cookies
+    .map((item) => item.split(";")[0]?.trim() ?? "")
+    .filter(Boolean)
+    .join("; ");
+
+const getSetCookieHeaders = (headers: Headers): string[] => {
+  const withGetSetCookie = headers as Headers & { getSetCookie?: () => string[] };
+  return withGetSetCookie.getSetCookie?.() ?? [];
+};
+
+const getBilibiliAnonymousCookie = async (): Promise<string> => {
+  if (bilibiliAnonymousCookie && Date.now() < bilibiliAnonymousCookieExpireAt) {
+    return bilibiliAnonymousCookie;
+  }
+
+  const res = await fetch("https://search.bilibili.com/all", {
+    headers: {
+      ...BILIBILI_PROXY_HEADERS,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+  });
+  const cookies = getSetCookieHeaders(res.headers);
+  bilibiliAnonymousCookie = parseBilibiliSetCookie(cookies);
+  bilibiliAnonymousCookieExpireAt = Date.now() + BILIBILI_COOKIE_TTL;
+  return bilibiliAnonymousCookie;
+};
+
+const createBilibiliProxyPlugin = (): Plugin => ({
+  name: "splayer-bilibili-proxy",
+  configureServer(server: ViteDevServer): void {
+    server.middlewares.use(BILIBILI_PROXY_PREFIX, async (req, res, next) => {
+      const requestUrl = new URL(req.url ?? "", BILIBILI_PROXY_TARGET);
+      if (!BILIBILI_PROXY_PATHS.has(requestUrl.pathname)) {
+        next();
+        return;
+      }
+
+      try {
+        const cookie = await getBilibiliAnonymousCookie();
+        const upstream = await fetch(
+          `${BILIBILI_PROXY_TARGET}${requestUrl.pathname}${requestUrl.search}`,
+          {
+            headers: {
+              ...BILIBILI_PROXY_HEADERS,
+              ...(cookie ? { Cookie: cookie } : {}),
+            },
+          },
+        );
+        const body = Buffer.from(await upstream.arrayBuffer());
+        res.statusCode = upstream.status;
+        res.statusMessage = upstream.statusText;
+        res.setHeader(
+          "Content-Type",
+          upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
+        );
+        res.setHeader("Cache-Control", "no-store");
+        res.end(body);
+      } catch (err) {
+        res.statusCode = 502;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+    });
+  },
+});
 
 export default defineConfig({
   main: {
@@ -79,6 +165,7 @@ export default defineConfig({
       },
     },
     plugins: [
+      createBilibiliProxyPlugin(),
       vue(),
       UnoCSS(),
       AutoImport({

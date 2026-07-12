@@ -39,6 +39,17 @@ const props = withDefaults(defineProps<BackgroundRenderProps>(), {
 });
 
 const wrapperRef = ref<HTMLDivElement | null>(null);
+const pageVisible = ref(!document.hidden);
+const reduceMotion = ref(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+const syncPageVisibility = () => {
+  pageVisible.value = !document.hidden;
+};
+
+const syncReducedMotion = (event: MediaQueryListEvent) => {
+  reduceMotion.value = event.matches;
+};
 
 // 外部渲染器实例引用
 const bgRenderRef = shallowRef<AbstractBaseRenderer>();
@@ -68,7 +79,7 @@ const syncRendererMotion = () => {
   const renderer = bgRenderRef.value;
   if (!renderer) return;
 
-  if (props.playing) {
+  if (props.playing && pageVisible.value && !reduceMotion.value) {
     renderer.setStaticMode(false);
     renderer.setFlowSpeed(props.flowSpeed);
     renderer.resume();
@@ -134,7 +145,7 @@ const stopFftCapture = () => {
  * 按播放状态与跳动开关同步 FFT 采集
  */
 const syncFftCapture = () => {
-  if (props.playing && props.enableBeat) {
+  if (props.playing && pageVisible.value && !reduceMotion.value && props.enableBeat) {
     startFftCapture();
   } else {
     stopFftCapture();
@@ -147,6 +158,8 @@ const syncFftCapture = () => {
 };
 
 onMounted(() => {
+  document.addEventListener("visibilitychange", syncPageVisibility);
+  reducedMotionQuery.addEventListener("change", syncReducedMotion);
   if (!wrapperRef.value) return;
 
   // 初始化 AMLL 底层渲染器
@@ -164,6 +177,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener("visibilitychange", syncPageVisibility);
+  reducedMotionQuery.removeEventListener("change", syncReducedMotion);
   stopFftCapture();
 
   const renderer = bgRenderRef.value;
@@ -201,6 +216,11 @@ watch(
   () => syncFftCapture(),
 );
 
+watch([pageVisible, reduceMotion], () => {
+  syncRendererMotion();
+  syncFftCapture();
+});
+
 watch(
   () => props.fps,
   (val) => {
@@ -233,7 +253,9 @@ watch(
 watch(
   () => props.flowSpeed,
   (val) => {
-    if (props.playing) bgRenderRef.value?.setFlowSpeed(val);
+    if (props.playing && pageVisible.value && !reduceMotion.value) {
+      bgRenderRef.value?.setFlowSpeed(val);
+    }
   },
 );
 

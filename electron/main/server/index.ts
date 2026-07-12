@@ -10,10 +10,18 @@ import { WebSocketServer } from "ws";
 import { store } from "@main/store";
 import { serverLog } from "@main/utils/logger";
 import type { ExternalApiStatus } from "@shared/types/settings";
-import { externalControlGate, wsGate, apiKeyGate } from "./gate";
-import { buildRoutes } from "./routes";
-import { wsHandlers } from "./ws";
+import {
+  externalControlGate,
+  wsGate,
+  apiKeyGate,
+  wsApiKeyGate,
+  listenTogetherGate,
+  WS_AUTH_PROTOCOL,
+} from "./gate";
+import { buildListenTogetherRoutes, buildRoutes } from "./routes";
+import { wsHandlers, listenTogetherWsHandlers } from "./ws";
 
+import { randomBytes } from "node:crypto";
 let runningServer: Server | null = null;
 let runningWss: WebSocketServer | null = null;
 let runningPort: number | null = null;
@@ -49,34 +57,60 @@ export const getServerStatus = (): ExternalApiStatus => ({
 });
 
 /** 启动外部 API 服务 */
+export const ensureServerAuthKeys = (): void => {
+  if (!store.get("externalApi.apiKey")) {
+    store.set("externalApi.apiKey", randomBytes(32).toString("base64url"));
+    serverLog.info("已生成外部 API 鉴权密钥");
+  }
+  if (!store.get("listenTogether.authKey")) {
+    store.set("listenTogether.authKey", randomBytes(32).toString("base64url"));
+    serverLog.info("已生成一起听服务器鉴权密钥");
+  }
+};
+
 export const startServer = (): Promise<ExternalApiStatus> => {
   return new Promise((resolve) => {
     if (runningServer) {
       resolve(getServerStatus());
       return;
     }
-    // 功能关闭时不监听端口
-    if (!store.get("externalApi.enabled")) {
+    const externalApiEnabled = store.get("externalApi.enabled");
+    const listenTogetherEnabled = store.get("listenTogether.enabled");
+    if (!externalApiEnabled && !listenTogetherEnabled) {
       resolve(getServerStatus());
       return;
     }
 
+    ensureServerAuthKeys();
+
     const port = store.get("externalApi.port");
-    // 默认仅本机可访问；服务自身无鉴权，开放局域网需用户显式开启
     const hostname = store.get("externalApi.allowLan") ? "0.0.0.0" : "127.0.0.1";
 
     const app = new Hono();
     app.use("/api/*", externalControlGate, apiKeyGate);
     app.route("/api", buildRoutes());
+    app.use("/listen-together/api/*", listenTogetherGate);
+    app.route("/listen-together/api", buildListenTogetherRoutes());
     app.get(
       "/ws",
       externalControlGate,
       wsGate,
+      wsApiKeyGate,
       upgradeWebSocket(() => wsHandlers),
     );
-    app.get("/", (c) => c.text("SPlayer Next external API"));
+    app.get(
+      "/listen-together/ws",
+      listenTogetherGate,
+      upgradeWebSocket(() => listenTogetherWsHandlers),
+    );
+    app.get("/", (c) => c.text("SPlayer Next network service"));
 
-    const wss = new WebSocketServer({ noServer: true });
+    const wss = new WebSocketServer({
+      noServer: true,
+      maxPayload: 256 * 1024,
+      handleProtocols: (protocols) =>
+        protocols.has(WS_AUTH_PROTOCOL) ? WS_AUTH_PROTOCOL : false,
+    });
     let settled = false;
 
     const server = serve({
@@ -86,12 +120,11 @@ export const startServer = (): Promise<ExternalApiStatus> => {
       websocket: { server: wss },
     }) as Server;
 
-    // error / listening 互斥：先到先 settle
     server.once("error", (err: NodeJS.ErrnoException) => {
       if (settled) return;
       settled = true;
       const error = { code: err.code ?? "UNKNOWN", message: err.message };
-      serverLog.error(`外部 API 监听 ${port} 失败 (${error.code}): ${error.message}`);
+      serverLog.error(`网络服务监听 ${port} 失败 (${error.code}): ${error.message}`);
       wss.close();
       try {
         server.close();
@@ -116,7 +149,7 @@ export const startServer = (): Promise<ExternalApiStatus> => {
       runningAllowLan = hostname === "0.0.0.0";
       runningHost = runningAllowLan ? (getLanAddress() ?? "0.0.0.0") : hostname;
       lastError = null;
-      serverLog.info(`外部 API 已启动: http://${hostname}:${port}`);
+      serverLog.info(`网络服务已启动: http://${hostname}:${port}`);
       resolve(getServerStatus());
     });
   });
