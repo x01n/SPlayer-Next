@@ -36,6 +36,8 @@ tracing-appender = "0.2"
 time = { version = "0.3", features = ["macros", "formatting"] }
 walkdir = "2"
 tokio = { version = "1", features = ["rt"] }
+wreq = "5.3.0"
+wreq-util = "2.2.6"
 
 [build-dependencies]
 napi-build = "2.3"

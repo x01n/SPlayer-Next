@@ -22,6 +22,33 @@ export interface TrackVideoBgItem {
 /** 按歌曲配置的视频背景存储 */
 const db = localforage.createInstance({ name: "splayer", storeName: "trackVideoBg" });
 
+/** 视频背景配置变更事件目标（跨组件通知：保存/删除后立即刷新播放器背景） */
+const changeEvents = new EventTarget();
+
+/** 视频背景配置变更事件名 */
+const VIDEO_BG_CHANGE_EVENT = "track-video-bg-change";
+
+/**
+ * 派发视频背景配置变更事件
+ * @param trackId - 发生变更的歌曲 id
+ */
+const emitVideoBgChange = (trackId: string): void => {
+  changeEvents.dispatchEvent(new CustomEvent(VIDEO_BG_CHANGE_EVENT, { detail: trackId }));
+};
+
+/**
+ * 订阅视频背景配置变更
+ * @param handler - 变更回调，参数为发生变更的歌曲 id
+ * @returns 取消订阅函数
+ */
+export const onTrackVideoBgChange = (handler: (trackId: string) => void): (() => void) => {
+  const listener = (event: Event): void => {
+    handler((event as CustomEvent<string>).detail);
+  };
+  changeEvents.addEventListener(VIDEO_BG_CHANGE_EVENT, listener);
+  return () => changeEvents.removeEventListener(VIDEO_BG_CHANGE_EVENT, listener);
+};
+
 /**
  * 校验持久化的视频背景配置
  * @param value - IndexedDB 读取结果
@@ -59,6 +86,7 @@ export const setTrackVideoBg = async (
   item: TrackVideoBgItem,
 ): Promise<void> => {
   await db.setItem(trackId, item);
+  emitVideoBgChange(trackId);
 };
 
 /**
@@ -67,6 +95,7 @@ export const setTrackVideoBg = async (
  */
 export const removeTrackVideoBg = async (trackId: string): Promise<void> => {
   await db.removeItem(trackId);
+  emitVideoBgChange(trackId);
 };
 
 /**

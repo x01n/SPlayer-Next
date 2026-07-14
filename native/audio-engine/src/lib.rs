@@ -1018,13 +1018,10 @@ pub async fn http_get(
     url: String,
     headers: std::collections::HashMap<String, String>,
 ) -> Result<JsHttpResponse> {
-    tokio::task::spawn_blocking(move || {
-        http_proxy::do_get(&url, &headers)
-            .map(proxy_to_js)
-            .map_err(|e| Error::from_reason(e))
-    })
-    .await
-    .map_err(|e| Error::from_reason(format!("HTTP GET 任务失败: {e}")))?
+    http_proxy::do_get(&url, &headers)
+        .await
+        .map(proxy_to_js)
+        .map_err(|e| Error::from_reason(e))
 }
 
 /// 通过 Rust 发送 HTTP POST 请求
@@ -1034,11 +1031,8 @@ pub async fn http_post(
     headers: std::collections::HashMap<String, String>,
     body: String,
 ) -> Result<JsHttpResponse> {
-    tokio::task::spawn_blocking(move || {
-        http_proxy::do_post(&url, &headers, &body)
-            .map(proxy_to_js)
-            .map_err(|e| Error::from_reason(e))
-    })
-    .await
-    .map_err(|e| Error::from_reason(format!("HTTP POST 任务失败: {e}")))?
+    http_proxy::do_post(&url, &headers, &body)
+        .await
+        .map(proxy_to_js)
+        .map_err(|e| Error::from_reason(e))
 }

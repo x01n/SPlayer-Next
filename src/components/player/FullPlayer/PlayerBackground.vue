@@ -6,6 +6,7 @@ import { useStatusStore } from "@/stores/status";
 import {
   getTrackVideoBg,
   refreshTrackVideoBg,
+  onTrackVideoBgChange,
   type TrackVideoBgItem,
 } from "@/composables/useTrackVideoBg";
 import DEFAULT_COVER from "@/assets/images/song.jpg";
@@ -63,26 +64,42 @@ const trackVideoBg = ref<TrackVideoBgItem | null>(null);
 const refreshedTrackVideoUrl = ref<string | null>(null);
 
 /** 当歌曲切换时，异步加载按歌曲配置的视频背景 */
+const loadTrackVideoBg = async (trackId: string | undefined): Promise<void> => {
+  refreshedTrackVideoUrl.value = null;
+  if (!trackId) {
+    trackVideoBg.value = null;
+    return;
+  }
+  const result = await getTrackVideoBg(trackId);
+  // 丢弃过期的异步结果，避免歌曲快速切换时的竞态
+  if (trackId === media.track?.id) {
+    trackVideoBg.value = result;
+  }
+};
+
 watch(
   () => media.track?.id,
-  async (trackId) => {
-    refreshedTrackVideoUrl.value = null;
-    if (trackId) {
-      const result = await getTrackVideoBg(trackId);
-      // 丢弃过期的异步结果，避免歌曲快速切换时的竞态
-      if (trackId === media.track?.id) {
-        trackVideoBg.value = result;
-      }
-    } else {
-      trackVideoBg.value = null;
-    }
+  (trackId) => {
+    void loadTrackVideoBg(trackId);
   },
   { immediate: true },
 );
 
+// 订阅视频背景配置变更，保存/删除后立即刷新（针对当前歌曲）
+const unsubscribeVideoBgChange = onTrackVideoBgChange((trackId) => {
+  if (trackId === media.track?.id) {
+    videoLoadError.value = false;
+    videoRetryCount.value = 0;
+    void loadTrackVideoBg(trackId);
+  }
+});
+
+onBeforeUnmount(() => unsubscribeVideoBgChange());
+
 // 实际生效的背景类型，video / customImage / customVideo 无源或加载失败时回退到 blur
 const effectiveBgType = computed(() => {
-  if (bgType.value === "video" && !videoLoadError.value && trackVideoBg.value?.videoUrl) {
+  // 按歌曲单独配置的视频背景优先级最高，无论全局背景类型是否为 video 都应用
+  if (trackVideoBg.value?.videoUrl && !videoLoadError.value) {
     return "video";
   }
   if (bgType.value === "video" && !videoLoadError.value && media.track?.video?.url) {
@@ -163,11 +180,15 @@ const onVideoError = async (event: Event) => {
 };
 
 const configuredVideoSrc = computed(() => {
+  // 按歌曲配置的视频背景优先，无论全局背景类型
+  if (trackVideoBg.value?.videoUrl) {
+    return trackVideoBg.value.videoUrl;
+  }
   if (bgType.value === "customVideo") {
     return settings.player.playerBgCustomVideo || "";
   }
   if (bgType.value === "video") {
-    return trackVideoBg.value?.videoUrl || refreshedTrackVideoUrl.value || media.track?.video?.url || "";
+    return refreshedTrackVideoUrl.value || media.track?.video?.url || "";
   }
   return "";
 });
@@ -205,6 +226,40 @@ const syncVideoPlayback = () => {
     video.pause();
   }
 };
+
+/**
+ * 视频进度跟随音频：将音频位置按视频时长取模映射到循环视频
+ * 偏差超过阈值（拖动进度条 / 跳曲）时才纠正，避免与视频自然播放抢帧
+ */
+const VIDEO_SYNC_THRESHOLD_S = 0.6;
+const syncVideoProgress = (force = false) => {
+  const video = videoRef.value;
+  if (!video || !videoLoaded.value) return;
+  // 仅按歌曲配置 / MV 类视频跟随进度；自定义氛围视频保持自由循环
+  if (effectiveBgType.value !== "video") return;
+  const videoDuration = video.duration;
+  if (!Number.isFinite(videoDuration) || videoDuration <= 0) return;
+
+  const target = (status.position / 1000) % videoDuration;
+  if (force || Math.abs(video.currentTime - target) > VIDEO_SYNC_THRESHOLD_S) {
+    try {
+      video.currentTime = target;
+    } catch {
+      // 部分流式视频不支持精确 seek，忽略
+    }
+  }
+};
+
+// 拖动进度条 / 跳曲导致音频位置跳变时，同步视频进度
+watch(
+  () => status.position,
+  () => syncVideoProgress(),
+);
+
+// 视频加载完成后立即对齐一次当前进度
+watch(videoLoaded, (loaded) => {
+  if (loaded) syncVideoProgress(true);
+});
 
 const syncPageVisibility = () => {
   pageVisible.value = !document.hidden;

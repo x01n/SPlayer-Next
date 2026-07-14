@@ -1,8 +1,11 @@
 //! 通用 HTTP 代理，通过 NAPI 暴露给主进程。
-//! 用于渲染进程无法直接请求（CORS）的外部 API。
+//! 使用 wreq + BoringSSL 模拟浏览器 TLS/JA3/JA4/HTTP2 指纹，防止反爬封禁。
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use tracing::debug;
+use wreq::Client;
+use wreq_util::Emulation;
 
 /// HTTP 响应
 pub struct ProxyResponse {
@@ -11,50 +14,61 @@ pub struct ProxyResponse {
     pub headers: Vec<(String, String)>,
 }
 
-/// 同步 HTTP GET（在调用方的 spawn_blocking 线程中执行）
-pub fn do_get(url: &str, headers: &HashMap<String, String>) -> Result<ProxyResponse, String> {
-    let agent = ureq::Agent::new();
-    let mut req = agent.get(url);
-    for (key, value) in headers {
-        req = req.set(key, value);
-    }
-    debug!(url_len = url.len(), "HTTP 代理 GET");
-    send(req)
+/// 全局复用的 wreq Client，模拟 Firefox 136 指纹
+fn global_client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .emulation(Emulation::Firefox136)
+            .build()
+            .expect("wreq Client 初始化失败")
+    })
 }
 
-/// 同步 HTTP POST（application/x-www-form-urlencoded）
-pub fn do_post(
+/// 异步 HTTP GET
+pub async fn do_get(url: &str, headers: &HashMap<String, String>) -> Result<ProxyResponse, String> {
+    let client = global_client();
+    let mut req = client.get(url);
+    for (key, value) in headers {
+        req = req.header(key.as_str(), value.as_str());
+    }
+    debug!(url_len = url.len(), "HTTP 代理 GET");
+    let resp = req.send().await.map_err(|e| format!("请求失败: {e}"))?;
+    read_response(resp).await
+}
+
+/// 异步 HTTP POST
+pub async fn do_post(
     url: &str,
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<ProxyResponse, String> {
-    let agent = ureq::Agent::new();
-    let mut req = agent.post(url);
+    let client = global_client();
+    let mut req = client.post(url);
     for (key, value) in headers {
-        req = req.set(key, value);
+        req = req.header(key.as_str(), value.as_str());
     }
     debug!(url_len = url.len(), "HTTP 代理 POST");
     let resp = req
-        .send_string(body)
+        .body(body.to_owned())
+        .send()
+        .await
         .map_err(|e| format!("请求失败: {e}"))?;
-    read_response(resp)
+    read_response(resp).await
 }
 
-fn send(req: ureq::Request) -> Result<ProxyResponse, String> {
-    let resp = req.call().map_err(|e| format!("请求失败: {e}"))?;
-    read_response(resp)
-}
-
-fn read_response(resp: ureq::Response) -> Result<ProxyResponse, String> {
-    let status = resp.status();
+/// 提取响应头和 body（先收集 headers 再消费 body）
+async fn read_response(resp: wreq::Response) -> Result<ProxyResponse, String> {
+    let status = resp.status().as_u16();
     let mut resp_headers = Vec::new();
-    for name in resp.headers_names() {
-        if let Some(value) = resp.header(&name) {
-            resp_headers.push((name, value.to_string()));
+    for (name, value) in resp.headers().iter() {
+        if let Ok(v) = value.to_str() {
+            resp_headers.push((name.as_str().to_string(), v.to_string()));
         }
     }
     let body = resp
-        .into_string()
+        .text()
+        .await
         .map_err(|e| format!("读取响应失败: {e}"))?;
     Ok(ProxyResponse {
         status,
